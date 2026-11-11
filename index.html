@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BPGT TF Reports — Brooke's Point Grand Terminal Task Force</title>
+<meta name="description" content="Daily apprehension reporting and monthly summary for the Brooke's Point Grand Terminal Task Force.">
+<meta name="theme-color" content="#0d2159">
+<meta name="application-name" content="BPGT TF Reports">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BPGT TF">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- =============================== LOGIN =============================== -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="brand">
+      <img class="bm seal" src="assets/bpgt-logo-128.png" alt="Brooke's Point Grand Terminal seal">
+      <div class="btxt">
+        <h1>BPGT Task Force</h1>
+        <p>Brooke's Point Grand Terminal</p>
+        <span class="tagline">Daily Reporting System</span>
+      </div>
+      <img class="bm shield" src="assets/tf-shield-256.png" alt="BPGT Task Force logo">
+    </div>
+    <p class="login-hero">Republic of the Philippines · Province of Palawan · Municipality of Brooke's Point</p>
+
+    <h2>Sign in</h2>
+    <p class="sub">Use the username and PIN issued by your Team Leader.</p>
+
+    <div id="login-error" class="err" hidden></div>
+
+    <form id="login-form" autocomplete="on">
+      <div class="field">
+        <label for="username">Username</label>
+        <input class="input" id="username" name="username" type="text" inputmode="text"
+               autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. gado" required>
+      </div>
+      <div class="field">
+        <label for="pin">PIN</label>
+        <div class="pin-wrap">
+          <input class="input" id="pin" name="pin" type="password" inputmode="numeric"
+                 pattern="[0-9]*" autocomplete="current-password" placeholder="••••" maxlength="8" required>
+          <button type="button" class="eye" id="toggle-pin">SHOW</button>
+        </div>
+      </div>
+      <button class="btn primary block" id="login-btn" type="submit">Sign in</button>
+    </form>
+
+    <div class="login-foot">
+      <span id="mode-pill" class="mode-pill">Local mode</span>
+      <span>v<span id="app-ver">1.0.0</span></span>
+    </div>
+
+    <details class="demo-box" id="demo-box">
+      <summary>Trial accounts (PIN <code>1234</code>)</summary>
+      <div class="grid">
+        <div>Alpha member: <code>gado</code></div>
+        <div>Zulu member: <code>montemor</code></div>
+        <div>Team Leader: <code>bacalla</code></div>
+        <div>Supervisor: <code>belen</code></div>
+        <div>Administrator: <code>heredero</code></div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<!-- =============================== APP ================================= -->
+<div id="app" hidden>
+  <header class="topbar">
+    <img class="logo" src="assets/bpgt-logo-128.png" alt="">
+    <div class="titles">
+      <div class="t1" id="top-title">BPGT TF Reports</div>
+      <div class="t2" id="top-sub">Task Force Reporting</div>
+    </div>
+    <span class="sync-pill" id="sync-pill"><span class="dot"></span><span id="sync-text">Synced</span></span>
+    <button class="avatar" id="avatar-btn" title="My account">TF</button>
+  </header>
+
+  <div class="wrap">
+    <nav class="side" id="side-nav"></nav>
+    <main id="view"></main>
+  </div>
+
+  <nav class="tabbar" id="tabbar"></nav>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast"></div>
+<iframe id="print-frame" title="print" style="position:fixed;width:0;height:0;border:0;left:-9999px;top:0"></iframe>
+
+<script src="js/config.js"></script>
+<script src="js/util.js"></script>
+<script src="js/api.js"></script>
+<script src="js/photos.js"></script>
+<script src="js/report.js"></script>
+<script src="js/app.js"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","spa":2}' crossorigin="anonymous"></script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a589903e79a285f5',t:'MTc5NDM2MDk1OQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a589903e79a285f5',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
