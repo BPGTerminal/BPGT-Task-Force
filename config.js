@@ -26,7 +26,7 @@ const BP = {
         Paste the /exec URL you get after deploying Code.gs  (see SETUP.md)
         Leave empty ("") to run in LOCAL / DEMO mode — data stays on the phone.
      --------------------------------------------------------------------- */
-  API_URL: '',
+  API_URL: 'https://script.google.com/macros/s/AKfycbxrFWZCOThvy_qht3ZyBxfRYhB1dOR04Ov6imcatmF7H_jOXvGeHI0u2rx-7FhJaAd-/exec',
 
   /* Token that Apps Script asks for on write actions (see SETUP.md)      */
   SYNC_INTERVAL_MS: 60 * 1000,
