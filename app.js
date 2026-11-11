@@ -192,6 +192,9 @@ function registerSW() {
 function go(view, params = {}) {
   const allowed = BP.NAV[me()?.role] || ['dashboard'];
   if (!allowed.includes(view)) view = 'dashboard';
+  if (view === 'encode' && !params.editId && App.draft?._editMode) {
+    App.draft = null;
+  }
   App.view = view; App.params = params;
   if (location.hash !== '#/' + view) history.replaceState(null, '', '#/' + view);
   render();
@@ -257,6 +260,8 @@ function renderNav() {
 /* one delegated binder for every screen */
 function bindView() {
   const root = document.getElementById('view');
+  root.oninput = null;
+  root.onchange = null;
   root.onclick = e => {
     const nav = e.target.closest('[data-nav]');
     if (nav) return go(nav.dataset.nav);
@@ -438,7 +443,7 @@ function bindDashboard() {}
 
 /* ================================================================ encode = */
 function blankRow() {
-  return { time: '', post: 'PTT', postOther: '', violation: '', plate: '', driver: '', ct: '', remarks: '', photos: [] };
+  return { time: '', post: '', postOther: '', violation: '', plate: '', driver: '', ct: '', remarks: '', photos: [] };
 }
 
 /** the report id a draft will be saved under (used to file photos early) */
@@ -448,24 +453,46 @@ function draftReportId() {
   return `R-${String(d.date).replace(/-/g, '')}-${d.memberUsername || me()?.username || 'tf'}`;
 }
 
-function newDraft() {
+function existingReportForDraft(d) {
+  if (!d || !d.date) return null;
+  const candidateId = `R-${String(d.date).replace(/-/g, '')}-${d.memberUsername || me()?.username || 'tf'}`;
+  return API.localReports().find(r => r.id === candidateId) ||
+         API.localReports().find(r => r.date === d.date && r.memberId === d.memberId) || null;
+}
+
+function newDraft(opts = {}) {
   const u = me();
-  let existing = App.params.editId ? API.localReports().find(r => r.id === App.params.editId) : null;
-  if (!existing) {
-    // already filed today? continue that report instead of starting a blank one
-    const today = U.today();
-    const candidate = `R-${today.replace(/-/g, '')}-${u.username}`;
-    const found = API.localReports().find(r => r.id === candidate);
-    if (found && found.status !== 'approved') existing = found;
+  const editId = opts.editId || App.params?.editId;
+  if (editId) {
+    const existing = API.localReports().find(r => r.id === editId);
+    if (existing) {
+      const cloned = U.clone(existing);
+      cloned._editMode = true;
+      if (!Array.isArray(cloned.rows) || !cloned.rows.length) cloned.rows = [blankRow()];
+      return cloned;
+    }
   }
-  if (existing) return U.clone(existing);
+  const members = API.users().filter(x => x.role === 'member');
+  const defaultTeam = opts.team || (u.team === 'BOTH' ? 'Alpha' : u.team);
+  let target = u;
+  if (opts.memberId) {
+    target = API.userById(opts.memberId) || u;
+  } else if (u.role !== 'member' && members.length) {
+    target = members.find(m => m.team === defaultTeam) || members[0];
+  }
   return {
-    id: '', date: U.today(),
-    team: u.team === 'BOTH' ? 'Alpha' : u.team,
-    memberId: u.id, memberName: u.name, memberUsername: u.username,
+    id: '',
+    date: opts.date || U.today(),
+    team: target.team === 'BOTH' ? defaultTeam : (target.team || defaultTeam),
+    memberId: target.id,
+    memberName: target.name,
+    memberUsername: target.username,
     rows: [blankRow()],
-    tally: { vehicles: 0, passengers: 0, arkabala: 0, violations: 0, incidents: 0, tickets: 0 },
-    narrative: '', status: 'draft', leaderNote: '', supervisorNote: '', returnNote: ''
+    tally: { vehicles: '', passengers: '', arkabala: '', violations: '', incidents: '', tickets: '' },
+    narrative: '',
+    status: 'draft',
+    leaderNote: '', supervisorNote: '', returnNote: '',
+    _editMode: false
   };
 }
 
@@ -474,21 +501,48 @@ function viewEncode() {
   if (!App.draft) App.draft = newDraft();
   const d = App.draft;
   const members = API.users().filter(x => x.role === 'member');
-  const locked = d.status && ['reviewed', 'approved'].includes(d.status);
+  const existing = existingReportForDraft(d);
+  const locked = (d._editMode ? d.status : existing?.status) && ['reviewed', 'approved'].includes(d._editMode ? d.status : existing?.status);
+  const existingCount = existing ? (existing.rows || []).length : 0;
 
   return `
   <div class="view-head">
-    <div><h2>${d.status === 'draft' || !d.status ? 'Encode daily report' : 'Edit report'}</h2>
-      <p>Duty activity log, tally and observations for one duty day.</p></div>
+    <div><h2>${d._editMode ? 'Edit saved report' : 'Encode daily report'}</h2>
+      <p>${d._editMode
+        ? `Editing all saved entries and totals for ${U.fmtLong(d.date)}.`
+        : 'Start with a blank entry pad. Each submission is added to this day’s report and clears the pad for your next entry.'}</p></div>
     <div class="btn-row">${periodBadge()}</div>
   </div>
 
-  ${locked ? `<div class="banner"><div class="ic">!</div><div><b>This report is already ${U.esc(d.status)}</b>
-      <p>Editing will send it back to “Submitted”. Ask your Team Leader if a correction is needed.</p></div></div>` : ''}
+  ${d._editMode ? `
+  <div class="banner navy" id="edit-mode-banner">
+    <div class="ic">✎</div>
+    <div style="flex:1">
+      <b>Editing saved report for ${U.fmtLong(d.date)} (${(d.rows || []).length} entr${(d.rows || []).length === 1 ? 'y' : 'ies'})</b>
+      <p>Changes you save here update the entire daily report for ${U.esc(d.memberName)}.</p>
+      <div class="btn-row" style="margin-top:8px">
+        <button type="button" class="btn sm ghost" data-action="reset-encode-pad">Back to blank entry pad</button>
+      </div>
+    </div>
+  </div>` : (existing ? `
+  <div class="banner navy" id="existing-report-banner">
+    <div class="ic">✓</div>
+    <div style="flex:1">
+      <b>${existingCount} entr${existingCount === 1 ? 'y' : 'ies'} already saved for ${U.fmtLong(d.date)}</b>
+      <p>The input pad below is blank and ready. Submitting a new entry adds it to ${U.esc(d.memberName)}’s daily report.</p>
+      <div class="btn-row" style="margin-top:8px">
+        <button type="button" class="btn sm ghost" data-report="${U.esc(existing.id)}">${icon('eye')} View saved report</button>
+        <button type="button" class="btn sm ghost" data-action="edit-report" data-id="${U.esc(existing.id)}">${icon('edit')} Edit saved entries (${existingCount})</button>
+      </div>
+    </div>
+  </div>` : '')}
+
+  ${locked ? `<div class="banner"><div class="ic">!</div><div><b>This report is already ${U.esc(d._editMode ? d.status : existing?.status)}</b>
+      <p>Adding or editing entries will send it back to “Submitted”. Ask your Team Leader if a correction is needed.</p></div></div>` : ''}
 
   <div class="card">
     <h3>Report details</h3>
-    <p class="hint">One report per duty day. Add a row for every apprehension or activity.</p>
+    <p class="hint">One report per duty day. New entries are added to the selected member and date.</p>
     <div class="form-grid form-2">
       <div>
         <label class="lbl" for="f-date">Date of duty</label>
@@ -512,52 +566,71 @@ function viewEncode() {
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div><h3>Duty activity log</h3><p class="hint" style="margin:0 0 6px">Time · post · violation · plate · driver · CT number · remarks</p></div>
-      <button class="btn soft sm" data-action="add-row" ${d.rows.length >= 40 ? 'disabled' : ''}>${icon('plus')} Add row</button>
+      <button type="button" class="btn soft sm" data-action="add-row" ${d.rows.length >= 40 ? 'disabled' : ''}>${icon('plus')} Add row</button>
     </div>
     <div id="rows" style="margin-top:11px">${d.rows.map((r, i) => rowHTML(r, i)).join('')}</div>
-    ${d.rows.length === 0 ? emptyState('No rows yet', 'Add at least one row, or file the tally only.') : ''}
+    ${d.rows.length === 0 ? emptyState('No entry rows on the pad', 'Tap “+ Add entry row” below to add an apprehension or activity, or submit tally/notes only.') : ''}
+    <div style="margin-top:10px">
+      <button type="button" class="btn soft add-row-bottom" data-action="add-row" ${d.rows.length >= 40 ? 'disabled' : ''}>
+        ${icon('plus')} ${d.rows.length ? 'Add another row' : 'Add entry row'}
+      </button>
+    </div>
   </div>
 
   <div class="card">
     <h3>Summary tally</h3>
-    <p class="hint">Page 2 of the form — totals for this duty day.</p>
+    <p class="hint">${d._editMode
+      ? 'Page 2 of the form — full totals for this duty day.'
+      : (existing
+          ? 'Optional — leave blank if unchanged. Any numbers entered here will be added to today’s saved tally.'
+          : 'Optional — totals for this duty day (you can enter these now or update them later today).')}</p>
     <div class="tally-grid">
-      ${BP.TALLY_FIELDS.map(f => `
+      ${BP.TALLY_FIELDS.map(f => {
+        const val = d.tally[f.key];
+        const disp = (val === '' || val === null || val === undefined) ? '' : U.num(val);
+        const savedVal = (!d._editMode && existing) ? U.num(existing.tally?.[f.key]) : null;
+        return `
         <div class="t">
-          <label for="t-${f.key}">${U.esc(f.label)}</label>
-          <input class="input" type="number" min="0" inputmode="numeric" id="t-${f.key}" data-tally="${f.key}" value="${U.num(d.tally[f.key])}">
-        </div>`).join('')}
+          <label for="t-${f.key}">${U.esc(f.label)}${savedVal ? ` <span class="tally-saved-pill">Saved: ${U.nf(savedVal)}</span>` : ''}</label>
+          <input class="input" type="number" min="0" inputmode="numeric" id="t-${f.key}" data-tally="${f.key}" value="${disp}" placeholder="0">
+        </div>`;
+      }).join('')}
     </div>
-    <button class="btn ghost sm" style="margin-top:10px" data-action="auto-violations">Count violations from log (${d.rows.filter(r => r.violation).length})</button>
+    <button type="button" class="btn ghost sm" style="margin-top:10px" data-action="auto-violations">Count violations from pad (${d.rows.filter(r => r.violation).length})</button>
   </div>
 
   <div class="card">
     <h3>Incidents / concerns / recommendations</h3>
-    <p class="hint">Anything the Team Leader, Supervisor or Terminal Administrator should know.</p>
+    <p class="hint">${(!d._editMode && existing && existing.narrative)
+      ? `Saved note today: “${U.esc(existing.narrative)}” — Anything typed below will be added to today’s notes.`
+      : 'Anything the Team Leader, Supervisor or Terminal Administrator should know.'}</p>
     <textarea class="input" id="f-narrative" rows="4" placeholder="e.g. Concern: illegal parking along the Rotunda post during peak hours. Recommendation: request additional signage.">${U.esc(d.narrative)}</textarea>
   </div>
 
   <div class="card">
     <div class="btn-row" style="justify-content:space-between">
       <div class="btn-row">
-        <button class="btn ghost" data-action="save-draft">Save draft</button>
+        <button type="button" class="btn ghost" data-action="save-draft">Save draft</button>
+        <button type="button" class="btn ghost" data-action="reset-encode-pad">Clear pad</button>
       </div>
       <div class="btn-row">
-        ${d.status === 'returned' ? '<span class="badge danger" style="align-self:center">Returned — re-submit after correcting</span>' : ''}
-        <button class="btn primary" data-action="submit">${icon('send')} Submit report</button>
+        ${(d._editMode ? d.status : existing?.status) === 'returned' ? '<span class="badge danger" style="align-self:center">Returned — re-submit after correcting</span>' : ''}
+        <button type="button" class="btn primary" data-action="submit">${icon('send')} ${d._editMode ? 'Save changes' : 'Submit report'}</button>
       </div>
     </div>
   </div>`;
 }
 
 function rowHTML(r, i) {
+  const isEdit = Boolean(App.draft?._editMode);
   return `<div class="log-row" data-row="${i}">
-    <div class="rhead"><b>Entry ${i + 1}</b><button class="del" data-action="del-row" data-idx="${i}">Remove</button></div>
+    <div class="rhead"><b>${isEdit ? 'Entry' : 'New entry'} ${i + 1}</b><button type="button" class="del" data-action="del-row" data-idx="${i}">Remove</button></div>
     <div class="g">
       <div><label class="lbl">Time</label><input class="input" type="time" data-row="${i}" data-field="time" value="${U.esc(r.time)}"></div>
       <div><label class="lbl">Post</label>
         <select class="input" data-row="${i}" data-field="post">
-          ${BP.POSTS.map(p => `<option ${r.post === p ? 'selected' : ''}>${p}</option>`).join('')}
+          <option value="" ${!r.post ? 'selected' : ''}>Select post…</option>
+          ${BP.POSTS.map(p => `<option value="${U.esc(p)}" ${r.post === p ? 'selected' : ''}>${p}</option>`).join('')}
         </select>
       </div>
       ${r.post === 'OTHERS' ? `<div class="full"><label class="lbl">Post name</label><input class="input" data-row="${i}" data-field="postOther" value="${U.esc(r.postOther)}" placeholder="Specify post"></div>` : ''}
@@ -591,11 +664,36 @@ function rowHTML(r, i) {
 }
 
 function bindEncode(root) {
-  const d = App.draft;
-  const rowsEl = root.querySelector('#rows');
   hydrateShots();
 
-  root.addEventListener('change', async e => {
+  const syncField = el => {
+    const d = App.draft;
+    const rowsEl = root.querySelector('#rows');
+    const i = +el.dataset.row, f = el.dataset.field;
+    if (!d || isNaN(i) || !f || !d.rows[i]) return;
+    d.rows[i][f] = el.value;
+    if (f === 'violation') {
+      const pick = el.parentElement.querySelector('[data-violation-pick]');
+      if (pick) pick.value = VIOLATION_CHOICES.includes(el.value) ? el.value : '';
+    }
+    if (f === 'post' && rowsEl) {
+      rowsEl.innerHTML = d.rows.map((r, k) => rowHTML(r, k)).join('');
+      hydrateShots();
+    }
+  };
+
+  root.oninput = e => {
+    const d = App.draft;
+    if (!d) return;
+    if (e.target.dataset.field) syncField(e.target);
+    else if (e.target.dataset.tally) d.tally[e.target.dataset.tally] = e.target.value === '' ? '' : U.num(e.target.value);
+    else if (e.target.id === 'f-narrative') d.narrative = e.target.value;
+    else if (e.target.id === 'f-date') d.date = e.target.value;
+  };
+
+  root.onchange = async e => {
+    const d = App.draft;
+    if (!d) return;
     if (e.target.matches('[data-violation-pick]')) {
       const idx = +e.target.dataset.violationPick;
       if (!d.rows[idx] || !e.target.value) return;
@@ -606,78 +704,177 @@ function bindEncode(root) {
     }
     if (e.target.matches('[data-photo-row]')) {
       const idx = +e.target.dataset.photoRow;
-      await addPhotos(idx, e.target.files);
+      const files = Array.from(e.target.files || []);
       e.target.value = '';
+      await addPhotos(idx, files);
+      return;
     }
-  });
-
-  const syncField = el => {
-    const i = +el.dataset.row, f = el.dataset.field;
-    if (isNaN(i) || !f) return;
-    d.rows[i][f] = el.value;
-    if (f === 'violation') {
-      const pick = el.parentElement.querySelector('[data-violation-pick]');
-      if (pick) pick.value = VIOLATION_CHOICES.includes(el.value) ? el.value : '';
+    if (e.target.dataset.field) syncField(e.target);
+    else if (e.target.id === 'f-date') {
+      collectDraftSoft();
+      d.date = e.target.value;
+      if (!d._editMode) render();
     }
-    if (f === 'post') rowsEl.innerHTML = d.rows.map((r, k) => rowHTML(r, k)).join('');
-  };
-  root.addEventListener('input', e => {
-    if (e.target.dataset.field) syncField(e.target);
-    else if (e.target.dataset.tally) d.tally[e.target.dataset.tally] = U.num(e.target.value);
-    else if (e.target.id === 'f-narrative') d.narrative = e.target.value;
-    else if (e.target.id === 'f-date') d.date = e.target.value;
-  });
-  root.addEventListener('change', e => {
-    if (e.target.dataset.field) syncField(e.target);
     else if (e.target.id === 'f-team') {
+      collectDraftSoft();
       d.team = e.target.value;
       if (canMonitor()) {
         const list = API.users().filter(x => x.role === 'member' && x.team === d.team);
-        const sel = root.querySelector('#f-member');
-        if (list.length && sel) {
-          sel.value = list[0].id;
+        if (list.length) {
           d.memberId = list[0].id; d.memberName = list[0].name; d.memberUsername = list[0].username;
         }
       }
+      if (!d._editMode) render();
     }
     else if (e.target.id === 'f-member') {
+      collectDraftSoft();
       const m = API.userById(e.target.value);
-      d.memberId = m.id; d.memberName = m.name; d.memberUsername = m.username; d.team = m.team;
-      root.querySelector('#f-team').value = m.team;
+      if (m) {
+        d.memberId = m.id; d.memberName = m.name; d.memberUsername = m.username; d.team = m.team;
+      }
+      if (!d._editMode) render();
     }
-  });
+  };
 }
 
-function collectDraft() {
-  const d = App.draft;
-  d.rows = d.rows.map(r => ({ ...r }));
-  const meaningful = d.rows.filter(r => r.time || r.violation || r.plate || r.remarks || r.driver || r.ct);
-  d.rows = meaningful;
-  if (!d.id) d.id = `R-${d.date.replace(/-/g, '')}-${d.memberUsername || 'tf'}`;
-  fileDraftPhotos(d).catch(() => {});
-  d.memberName = d.memberName || me().name;
-  return d;
+function isRowMeaningful(r) {
+  if (!r) return false;
+  return Boolean(
+    (r.time && String(r.time).trim()) ||
+    (r.post && String(r.post).trim()) ||
+    (r.postOther && String(r.postOther).trim()) ||
+    (r.violation && String(r.violation).trim()) ||
+    (r.plate && String(r.plate).trim()) ||
+    (r.driver && String(r.driver).trim()) ||
+    (r.ct && String(r.ct).trim()) ||
+    (r.remarks && String(r.remarks).trim()) ||
+    (r.photos && r.photos.length)
+  );
 }
 
 async function saveDraft(submit) {
-  const d = collectDraft();
-  if (!d.date) return U.toast('Choose the duty date', 'err');
-  const hasTally = BP.TALLY_FIELDS.some(f => U.num(d.tally[f.key]) > 0);
-  if (!d.rows.length && !hasTally && !d.narrative.trim()) {
+  collectDraftSoft();
+  const d = App.draft;
+  if (!d || !d.date) return U.toast('Choose the duty date', 'err');
+  const meaningful = (d.rows || []).map(r => ({ ...r })).filter(isRowMeaningful);
+  const hasTally = BP.TALLY_FIELDS.some(f => {
+    const v = d.tally?.[f.key];
+    return v !== '' && v !== null && v !== undefined && U.num(v) > 0;
+  });
+  const hasNarrative = Boolean((d.narrative || '').trim());
+  if (!meaningful.length && !hasTally && !hasNarrative) {
     return U.toast('Add at least one log entry, a tally or a note', 'err');
   }
-  const existing = API.localReports().find(r => r.id === d.id);
-  if (existing && existing.memberId !== d.memberId) {
+
+  const reportId = d.id || `R-${d.date.replace(/-/g, '')}-${d.memberUsername || me()?.username || 'tf'}`;
+
+  if (!d._editMode && API.isCloud() && !API.localReports().find(r => r.id === reportId)) {
+    try { await API.fetchReports({ from: d.date, to: d.date, memberId: d.memberId }); } catch (e) {}
+  }
+
+  const existing = API.localReports().find(r => r.id === reportId);
+  if (existing && existing.memberId && d.memberId && existing.memberId !== d.memberId) {
     return U.toast('Another report already exists for that member and date', 'err');
   }
-  d.status = submit ? 'submitted' : (d.status === 'returned' ? 'returned' : 'draft');
-  if (submit) { d.returnNote = ''; }
 
-  const saved = await API.saveReport(d);
-  App.draft = null;
-  U.toast(submit ? 'Report submitted — your Team Leader will verify it' : 'Draft saved on this device', 'ok');
-  openReport(saved.id);
-  go('reports');
+  let reportToSave;
+  if (!d._editMode && existing) {
+    const prevRows = U.clone(existing.rows || []);
+    const mergedRows = [...prevRows, ...meaningful];
+    const mergedTally = {};
+    BP.TALLY_FIELDS.forEach(f => {
+      const k = f.key;
+      const prevVal = U.num(existing.tally?.[k]);
+      const typedRaw = d.tally?.[k];
+      const hasTyped = typedRaw !== '' && typedRaw !== null && typedRaw !== undefined;
+      if (hasTyped) {
+        mergedTally[k] = prevVal + U.num(typedRaw);
+      } else if (k === 'violations') {
+        mergedTally[k] = prevVal + meaningful.filter(r => r.violation).length;
+      } else if (k === 'tickets') {
+        mergedTally[k] = prevVal + meaningful.filter(r => r.ct).length;
+      } else {
+        mergedTally[k] = prevVal;
+      }
+    });
+    const prevNarr = (existing.narrative || '').trim();
+    const newNarr = (d.narrative || '').trim();
+    const mergedNarrative = prevNarr && newNarr
+      ? (prevNarr === newNarr ? prevNarr : `${prevNarr}\n${newNarr}`)
+      : (newNarr || prevNarr);
+
+    reportToSave = {
+      ...U.clone(existing),
+      id: reportId,
+      date: d.date,
+      team: d.team,
+      memberId: d.memberId,
+      memberName: d.memberName || existing.memberName || me().name,
+      memberUsername: d.memberUsername || existing.memberUsername || me().username,
+      rows: mergedRows,
+      tally: mergedTally,
+      narrative: mergedNarrative,
+      status: submit ? 'submitted' : (existing.status === 'returned' ? 'returned' : (existing.status || 'draft')),
+      returnNote: submit ? '' : (existing.returnNote || '')
+    };
+  } else {
+    const computedTally = {};
+    BP.TALLY_FIELDS.forEach(f => {
+      const k = f.key;
+      const typedRaw = d.tally?.[k];
+      const hasTyped = typedRaw !== '' && typedRaw !== null && typedRaw !== undefined;
+      if (hasTyped) {
+        computedTally[k] = U.num(typedRaw);
+      } else if (k === 'violations') {
+        computedTally[k] = meaningful.filter(r => r.violation).length;
+      } else if (k === 'tickets') {
+        computedTally[k] = meaningful.filter(r => r.ct).length;
+      } else {
+        computedTally[k] = 0;
+      }
+    });
+    reportToSave = {
+      ...(existing ? U.clone(existing) : {}),
+      id: reportId,
+      date: d.date,
+      team: d.team,
+      memberId: d.memberId,
+      memberName: d.memberName || me().name,
+      memberUsername: d.memberUsername || me().username,
+      rows: meaningful,
+      tally: computedTally,
+      narrative: (d.narrative || '').trim(),
+      status: submit ? 'submitted' : (d.status === 'returned' ? 'returned' : 'draft'),
+      leaderNote: d.leaderNote || existing?.leaderNote || '',
+      supervisorNote: d.supervisorNote || existing?.supervisorNote || '',
+      returnNote: submit ? '' : (d.returnNote || existing?.returnNote || '')
+    };
+  }
+
+  await fileDraftPhotos(reportToSave).catch(() => {});
+  const saved = await API.saveReport(reportToSave);
+  if (API.isCloud()) {
+    try { Photos.uploadPending(DB.load().session?.token).catch(() => {}); } catch (e) {}
+  }
+
+  const nextContext = {
+    date: reportToSave.date,
+    team: reportToSave.team,
+    memberId: reportToSave.memberId,
+    memberName: reportToSave.memberName,
+    memberUsername: reportToSave.memberUsername
+  };
+  App.params = {};
+  App.draft = newDraft(nextContext);
+  const totalEntries = (saved.rows || []).length;
+  U.toast(
+    submit
+      ? `Report submitted (${totalEntries} entr${totalEntries === 1 ? 'y' : 'ies'} in daily report) — Input pad is empty and ready for next entry`
+      : `Draft saved (${totalEntries} entr${totalEntries === 1 ? 'y' : 'ies'}) — Input pad is empty and ready for next entry`,
+    'ok',
+    3600
+  );
+  go('encode');
 }
 
 /* ============================================================= monitoring = */
@@ -1324,10 +1521,20 @@ async function handleAction(action, data, el, ev) {
 
     /* --- encode -------------------------------------------------------- */
     case 'add-row': {
+      if (!App.draft) App.draft = newDraft();
       collectDraftSoft();
       if (App.draft.rows.length >= 40) return U.toast('A daily report holds up to 40 entries — file the rest tomorrow', 'warn');
       App.draft.rows.push(blankRow());
+      const newIdx = App.draft.rows.length - 1;
       render();
+      const newRowEl = document.querySelector(`#rows .log-row[data-row="${newIdx}"]`);
+      if (newRowEl) {
+        newRowEl.classList.add('row-just-added');
+        newRowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const firstInput = newRowEl.querySelector('input, select');
+        if (firstInput) setTimeout(() => firstInput.focus({ preventScroll: true }), 220);
+      }
+      U.toast(`Entry ${newIdx + 1} added below`, 'ok', 1800);
       return;
     }
     case 'del-row': {
@@ -1336,8 +1543,24 @@ async function handleAction(action, data, el, ev) {
       render();
       return;
     }
+    case 'reset-encode-pad': {
+      const ctx = App.draft ? {
+        date: App.draft.date,
+        team: App.draft.team,
+        memberId: App.draft.memberId,
+        memberName: App.draft.memberName,
+        memberUsername: App.draft.memberUsername
+      } : {};
+      App.params = {};
+      App.draft = newDraft(ctx);
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      U.toast('Input pad cleared and ready', 'info', 1800);
+      return;
+    }
     case 'auto-violations': {
       if (!App.draft) return;
+      collectDraftSoft();
       const n = App.draft.rows.filter(r => r.violation).length;
       App.draft.tally.violations = n;
       render();
@@ -1376,6 +1599,10 @@ async function handleAction(action, data, el, ev) {
       const pin = document.getElementById('u-pin').value.trim();
       if (!name || !username) return U.toast('Name and username are required', 'err');
       if (pin && !/^\d{4,8}$/.test(pin)) return U.toast('PIN must be 4–8 digits', 'err');
+      const existingUser = data.id ? API.userById(data.id) : null;
+      if (existingUser && existingUser.username.toLowerCase() !== username && !pin) {
+        return U.toast('When changing a username, please also enter a PIN in the PIN field', 'err', 4000);
+      }
       try {
         await API.call('saveUser', { user: { id: data.id || '', name, username, role, team, position, active: true }, pin: pin || undefined });
         await API.refreshUsers().catch(() => {});
@@ -1429,9 +1656,13 @@ async function handleAction(action, data, el, ev) {
     case 'approve': return setStatus(data.id, 'approved');
     case 'return': return returnModal(data.id);
     case 'edit-report': {
-      App.draft = API.localReports().find(r => r.id === data.id);
+      const found = API.localReports().find(r => r.id === data.id);
+      if (!found) return U.toast('Report not found', 'err');
+      App.draft = U.clone(found);
+      App.draft._editMode = true;
+      if (!Array.isArray(App.draft.rows) || !App.draft.rows.length) App.draft.rows = [blankRow()];
       App.params = { editId: data.id };
-      closeModal(); go('encode');
+      closeModal(); go('encode', { editId: data.id });
       return;
     }
     case 'delete-report': {
@@ -1451,7 +1682,7 @@ function collectDraftSoft() {
     if (!isNaN(i) && f && App.draft.rows[i]) App.draft.rows[i][f] = el.value;
   });
   document.querySelectorAll('#view [data-tally]').forEach(el => {
-    App.draft.tally[el.dataset.tally] = U.num(el.value);
+    App.draft.tally[el.dataset.tally] = el.value === '' ? '' : U.num(el.value);
   });
   const n = document.getElementById('f-narrative');
   if (n) App.draft.narrative = n.value;
@@ -2031,39 +2262,77 @@ async function hydrateShots() {
     const idx = +box.dataset.shots;
     const row = App.draft.rows[idx];
     if (!row) continue;
-    const ids = row.photos || [];
-    if (!ids.length) { box.innerHTML = '<span class="shot-none">No photo yet</span>'; continue; }
+    const rawIds = Array.from(new Set(row.photos || []));
+    if (!rawIds.length) { box.innerHTML = '<span class="shot-none">No photo yet</span>'; continue; }
     const items = [];
-    for (const id of ids) {
-      try { const p = await Photos.get(id); if (p) items.push(p); } catch (e) {}
+    const seenThumbs = new Set();
+    const cleanIds = [];
+    for (const id of rawIds) {
+      try {
+        const p = await Photos.get(id);
+        if (p) {
+          if (seenThumbs.has(p.thumb)) {
+            await Photos.remove(id).catch(() => {});
+            continue;
+          }
+          seenThumbs.add(p.thumb);
+          cleanIds.push(p.id);
+          items.push(p);
+        }
+      } catch (e) {}
     }
-    box.innerHTML = items.map(p => `
+    row.photos = cleanIds;
+    if (!items.length) { box.innerHTML = '<span class="shot-none">No photo yet</span>'; continue; }
+    box.innerHTML = items.map((p, k) => `
       <span class="shot">
-        <img src="${p.thumb}" alt="" data-action="lightbox" data-ids="${ids.join(',')}" data-index="${ids.indexOf(p.id)}">
-        <button class="shot-x" data-action="del-photo" data-id="${p.id}" data-row="${idx}" title="Remove">×</button>
+        <img src="${p.thumb}" alt="" data-action="lightbox" data-ids="${cleanIds.join(',')}" data-index="${k}">
+        <button type="button" class="shot-x" data-action="del-photo" data-id="${p.id}" data-row="${idx}" title="Remove">×</button>
       </span>`).join('');
   }
 }
 
 async function addPhotos(rowIndex, files) {
-  if (!App.draft || !files || !files.length) return;
+  if (!App.draft || !files || !files.length || addPhotos._busy) return;
   const d = App.draft;
   const row = d.rows[rowIndex];
   if (!row) return;
-  row.photos = row.photos || [];
-  U.toast('Saving photo…', 'info', 1600);
-  for (const f of Array.from(files).slice(0, 4)) {
-    try {
-      const rec = await Photos.add(f, {
-        reportId: draftReportId(), rowIndex, date: d.date, team: d.team, member: d.memberName,
-        post: row.post === 'OTHERS' ? (row.postOther || 'OTHERS') : row.post,
-        plate: row.plate, violation: row.violation
-      });
-      row.photos.push(rec.id);
-    } catch (e) { U.toast(e.message || 'Could not read that photo', 'err'); }
+  addPhotos._busy = true;
+  try {
+    row.photos = Array.from(new Set(row.photos || []));
+    const existingThumbs = new Set();
+    for (const id of row.photos) {
+      try { const p = await Photos.get(id); if (p?.thumb) existingThumbs.add(p.thumb); } catch (e) {}
+    }
+    const uniqueFiles = [];
+    const seenFileKeys = new Set();
+    for (const f of Array.from(files)) {
+      const k = `${f.name || ''}|${f.size || 0}|${f.lastModified || 0}`;
+      if (!seenFileKeys.has(k)) {
+        seenFileKeys.add(k);
+        uniqueFiles.push(f);
+      }
+    }
+    U.toast('Saving photo…', 'info', 1600);
+    for (const f of uniqueFiles.slice(0, 4)) {
+      try {
+        const rec = await Photos.add(f, {
+          reportId: draftReportId(), rowIndex, date: d.date, team: d.team, member: d.memberName,
+          post: row.post === 'OTHERS' ? (row.postOther || 'OTHERS') : row.post,
+          plate: row.plate, violation: row.violation
+        });
+        if (existingThumbs.has(rec.thumb)) {
+          await Photos.remove(rec.id).catch(() => {});
+          continue;
+        }
+        existingThumbs.add(rec.thumb);
+        row.photos.push(rec.id);
+      } catch (e) { U.toast(e.message || 'Could not read that photo', 'err'); }
+    }
+    await hydrateShots();
+    U.toast('Photo attached', 'ok');
+  } finally {
+    addPhotos._busy = false;
   }
-  hydrateShots();
-  U.toast('Photo attached', 'ok');
 }
 
 async function fileDraftPhotos(d) {

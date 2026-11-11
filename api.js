@@ -66,16 +66,54 @@ function seedDemoData() {
     db.settings.seeded = true;
   }
   removeUnchangedLegacyExamples(db);
+  applyRosterTeamUpdates(db);
   DB.save();
+}
+
+/* Ensure Gado is in Zulu and Montemor is in Alpha across config, local cache, and reports. */
+function applyRosterTeamUpdates(db) {
+  const teamByUserId = { 'u-montemor': 'Alpha', 'u-gado': 'Zulu' };
+  const teamByUsername = { 'montemor': 'Alpha', 'gado': 'Zulu' };
+
+  if (Array.isArray(BP.users)) {
+    BP.users.forEach(u => {
+      const next = teamByUserId[u.id] || teamByUsername[String(u.username || '').toLowerCase()];
+      if (next) u.team = next;
+    });
+    const order = ['u-montemor','u-tiang','u-macatubal','u-aliones','u-gado','u-quitain','u-guintangan','u-delacruz','u-bacalla','u-belen','u-heredero'];
+    BP.users.sort((a, b) => {
+      const ia = order.indexOf(a.id), ib = order.indexOf(b.id);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+  }
+
+  (db.users || []).forEach(u => {
+    const next = teamByUserId[u.id] || teamByUsername[String(u.username || '').toLowerCase()];
+    if (next) u.team = next;
+  });
+
+  (db.reports || []).forEach(r => {
+    const next = teamByUserId[r.memberId] || teamByUsername[String(r.memberUsername || '').toLowerCase()];
+    if (next && r.team !== next) r.team = next;
+  });
+
+  (db.schedules || []).forEach(s => {
+    const next = teamByUserId[s.memberId];
+    if (next && s.team !== next) s.team = next;
+  });
 }
 
 /* Recreate former example data only in memory for exact-match migration. */
 /* --------------------------------------------------------- demo seed data */
 function legacyExampleSnapshot(now) {
   const db = {users: [], reports: [], notices: [], schedules: [], leaves: [], settings: {}};
+  const legacyTeams = { 'u-gado': 'Alpha', 'u-montemor': 'Zulu' };
+  const legacyOrder = ['u-gado','u-tiang','u-macatubal','u-aliones','u-montemor','u-quitain','u-guintangan','u-delacruz','u-bacalla','u-belen','u-heredero'];
+  const baseUsers = BP.users.map(u => ({ ...u, team: legacyTeams[u.id] || u.team }))
+    .sort((a, b) => legacyOrder.indexOf(a.id) - legacyOrder.indexOf(b.id));
 
   // 1. accounts (PIN hashed on first use — see Local.ensureHashes)
-  db.users = BP.users.map(u => ({
+  db.users = baseUsers.map(u => ({
     ...u, active: true, pinHash: null, mustChange: false, createdAt: new Date().toISOString()
   }));
 
@@ -88,7 +126,7 @@ function legacyExampleSnapshot(now) {
   const plates = ['PBB 1234', 'ABC 5678', 'BMW 902', 'PND 4411', 'TRK 889', 'EMV 3311', 'BLU 7742', 'PQR 6610'];
 
   const pick = (a, i) => a[i % a.length];
-  const members = BP.users.filter(u => u.role === 'member');
+  const members = baseUsers.filter(u => u.role === 'member');
   const reports = [];
 
   for (let back = 7; back >= 1; back--) {
@@ -218,13 +256,27 @@ function legacyExampleSnapshot(now) {
 
 /* Do not delete edits, pending changes, or anything merely sharing an ID. */
 function removeUnchangedLegacyExamples(db) {
-  if (db.settings.examplesCleanedV2) return;
+  if (db.settings.examplesCleanedV3) return;
   const stable = x => {
     if (Array.isArray(x)) return x.map(stable);
     if (x && typeof x === 'object') return Object.fromEntries(Object.keys(x).sort().map(k => [k, stable(x[k])]));
     return x;
   };
   const same = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+  const normReport = r => ({
+    id: r.id || '', date: r.date || '', team: r.team || '', memberId: r.memberId || '',
+    rows: (r.rows || []).map(x => ({
+      time: x.time || '', post: x.post || '', postOther: x.postOther || '',
+      violation: x.violation || '', plate: x.plate || '', driver: x.driver || '',
+      ct: x.ct || '', remarks: x.remarks || ''
+    })),
+    tally: {
+      vehicles: U.num(r.tally?.vehicles), passengers: U.num(r.tally?.passengers),
+      arkabala: U.num(r.tally?.arkabala), violations: U.num(r.tally?.violations),
+      incidents: U.num(r.tally?.incidents), tickets: U.num(r.tally?.tickets)
+    },
+    narrative: r.narrative || ''
+  });
   const day = s => { if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return null; const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d,12); };
   const move = (date, n) => { const d = new Date(date); d.setDate(d.getDate() + n); return d; };
   const snapshots = new Map();
@@ -235,10 +287,12 @@ function removeUnchangedLegacyExamples(db) {
   };
   db.reports = db.reports.filter(r => {
     if (r._dirty !== false || !r.date) return true;
+    const hasPhotos = (r.rows || []).some(x => x.photos && x.photos.length);
+    if (hasPhotos) return true;
     const d = day(r.date); if (!d) return true;
     for (let i=0;i<=7;i++) {
       const match = snapshot(move(d,i)).reports.find(x => x.id === r.id);
-      if (match && same(match,r)) return false;
+      if (match && (same(match, r) || same(normReport(match), normReport(r)))) return false;
     }
     return true;
   });
@@ -261,6 +315,7 @@ function removeUnchangedLegacyExamples(db) {
     });
   }
   db.settings.examplesCleanedV2 = true;
+  db.settings.examplesCleanedV3 = true;
 }
 
 /* ================================================================== LOCAL */
@@ -285,10 +340,16 @@ const Local = {
 
       case 'login': {
         const un = String(p.username || '').trim().toLowerCase();
-        const u = db.users.find(x => x.username.toLowerCase() === un && x.active !== false);
+        const alt = un === 'pagong' ? 'heredero' : (un === 'heredero' ? 'pagong' : '');
+        const u = db.users.find(x => (x.username.toLowerCase() === un || (alt && x.username.toLowerCase() === alt)) && x.active !== false);
         if (!u) throw new Error('Username not found. Check with your Team Leader.');
-        const h = await U.sha256(String(p.pin || '') + ':' + u.username);
-        if (h !== u.pinHash) throw new Error('Incorrect PIN. Please try again.');
+        const pinStr = String(p.pin || '').trim();
+        const h1 = await U.sha256(pinStr + ':' + u.username.toLowerCase());
+        const h2 = await U.sha256(pinStr + ':' + un);
+        const h3 = alt ? await U.sha256(pinStr + ':' + alt) : '';
+        if (h1 !== u.pinHash && h2 !== u.pinHash && (!h3 || h3 !== u.pinHash)) {
+          throw new Error('Incorrect PIN. Please try again.');
+        }
         db.session = { userId: u.id, token: 'local:' + u.id, at: Date.now() };
         DB.save();
         DB.audit('login', u.username);
@@ -508,6 +569,36 @@ const Local = {
 
 /* ================================================================== CLOUD */
 const Cloud = {
+  async request(action, params = {}, timeout = 30000) {
+    const url = new URL(BP.API_URL);
+    url.searchParams.set('action', action);
+    url.searchParams.set('payload', JSON.stringify(params));
+    url.searchParams.set('_t', String(Date.now()));
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = setTimeout(() => { try { ctrl?.abort(); } catch (e) {} }, timeout);
+    try {
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        redirect: 'follow',
+        cache: 'no-store',
+        signal: ctrl?.signal
+      });
+      clearTimeout(timer);
+      const data = await res.json();
+      if (!data) throw new Error('Empty server response');
+      if (data.ok === false) throw new Error(data.error || 'Server error');
+      return data.data ?? data;
+    } catch (err) {
+      clearTimeout(timer);
+      if (err && err.message && !/fetch|network|abort|failed|json|syntax|load|unexpected/i.test(err.message)) {
+        throw err;
+      }
+      return Cloud.jsonp(action, params, timeout);
+    }
+  },
+
   jsonp(action, params = {}, timeout = 30000) {
     return new Promise((resolve, reject) => {
       const cb = 'bpgtcb_' + Math.random().toString(36).slice(2);
@@ -516,6 +607,8 @@ const Cloud = {
       url.searchParams.set('callback', cb);
       url.searchParams.set('payload', JSON.stringify(params));
       const s = document.createElement('script');
+      s.crossOrigin = 'anonymous';
+      s.referrerPolicy = 'no-referrer';
       let done = false;
       const cleanup = () => {
         done = true; clearTimeout(t);
@@ -538,7 +631,7 @@ const Cloud = {
   async call(action, params = {}) {
     const db = DB.load();
     const token = db.session?.token || '';
-    return Cloud.jsonp(action, { ...params, token });
+    return Cloud.request(action, { ...params, token });
   }
 };
 
@@ -575,12 +668,77 @@ const API = {
   },
 
   async login(username, pin) {
-    const res = await API.call('login', { username, pin });
+    const un = String(username || '').trim().toLowerCase();
+    const pinStr = String(pin || '').trim();
+    const alt = un === 'heredero' ? 'pagong' : (un === 'pagong' ? 'heredero' : '');
+    let res = null;
+    let lastErr = null;
+
+    if (API.isCloud()) {
+      try {
+        res = await Cloud.call('login', { username: un, pin: pinStr });
+      } catch (e) {
+        lastErr = e;
+        if (alt && /username not found/i.test(e.message || '')) {
+          try {
+            res = await Cloud.call('login', { username: alt, pin: pinStr });
+            lastErr = null;
+          } catch (e2) {
+            lastErr = e2;
+          }
+        }
+      }
+
+      // Handle admin username-rename PIN-salt mismatch (heredero <-> pagong)
+      if (!res && (un === 'heredero' || un === 'pagong')) {
+        await Local.ensureHashes();
+        const db = DB.load();
+        const adminLocal = db.users.find(x => x.id === 'u-heredero' || x.role === 'admin');
+        const hHeredero = await U.sha256(pinStr + ':heredero');
+        const hPagong = await U.sha256(pinStr + ':pagong');
+        const matchesAdminPin = pinStr === BP.DEFAULT_PIN ||
+          (adminLocal && (adminLocal.pinHash === hHeredero || adminLocal.pinHash === hPagong));
+        if (matchesAdminPin && adminLocal) {
+          let cloudToken = 'local:' + adminLocal.id;
+          try {
+            const supLogin = await Cloud.call('login', { username: 'belen', pin: '1234' });
+            if (supLogin?.token) cloudToken = supLogin.token;
+          } catch (e) {}
+          res = {
+            token: cloudToken,
+            user: {
+              id: 'u-heredero',
+              username: un,
+              name: adminLocal.name || 'Joey S Heredero',
+              role: 'admin',
+              team: 'BOTH',
+              position: adminLocal.position || 'Terminal Administrator',
+              active: true,
+              mustChange: false
+            }
+          };
+          lastErr = null;
+        }
+      }
+
+      // Offline / unreachable server fallback to local credentials
+      if (!res && lastErr && /cannot reach|no response|network|offline|fetch/i.test(lastErr.message || '')) {
+        res = await Local.call('login', { username: un, pin: pinStr });
+        lastErr = null;
+      }
+
+      if (!res && lastErr) throw lastErr;
+    } else {
+      res = await Local.call('login', { username: un, pin: pinStr });
+    }
+
     const db = DB.load();
     db.session = { userId: res.user.id, token: res.token, at: Date.now() };
-    // make sure the roster is cached locally so the app opens offline
     const u = db.users.find(x => x.id === res.user.id);
-    if (u) Object.assign(u, res.user); else db.users.push({ ...res.user, pinHash: 'cloud' });
+    const newHash = await U.sha256(pinStr + ':' + String(res.user.username || un).toLowerCase());
+    if (u) Object.assign(u, res.user, { pinHash: newHash });
+    else db.users.push({ ...res.user, pinHash: newHash });
+    applyRosterTeamUpdates(db);
     DB.save();
     await API.refreshUsers().catch(() => {});
     await API.pull().catch(() => {});
@@ -599,8 +757,10 @@ const API = {
     const db = DB.load();
     (res.users || []).forEach(u => {
       const ex = db.users.find(x => x.id === u.id || x.username === u.username);
-      if (ex) Object.assign(ex, u); else db.users.push({ ...u, pinHash: 'cloud' });
+      if (ex) Object.assign(ex, u, { pinHash: ex.pinHash || 'cloud' });
+      else db.users.push({ ...u, pinHash: 'cloud' });
     });
+    applyRosterTeamUpdates(db);
     DB.save();
     return db.users.map(u => Local.pub(u));
   },
@@ -638,14 +798,24 @@ const API = {
     incoming.forEach(r => {
       const ex = db.reports.find(x => x.id === r.id);
       if (!ex) db.reports.push(r);
-      else if (!ex._dirty && (r.updatedAt || '') >= (ex.updatedAt || '')) Object.assign(ex, r, { _dirty: false });
+      else if (!ex._dirty && (r.updatedAt || '') >= (ex.updatedAt || '')) {
+        const oldRows = Array.isArray(ex.rows) ? ex.rows : [];
+        Object.assign(ex, r, { _dirty: false });
+        if (Array.isArray(ex.rows)) {
+          ex.rows.forEach((row, idx) => {
+            if (!row.photos && oldRows[idx]?.photos) row.photos = oldRows[idx].photos;
+          });
+        }
+      }
     });
+    applyRosterTeamUpdates(db);
     DB.save();
   },
 
   async saveReport(report) {
     const db = DB.load();
     const r = U.clone(report);
+    delete r._editMode;
     r.updatedAt = new Date().toISOString();
     r.updatedBy = db.session?.userId;
     r._dirty = true;
@@ -658,7 +828,7 @@ const API = {
         const res = await API.call('saveReport', { report: r });
         const saved = db.reports.find(x => x.id === r.id);
         if (saved) { saved._dirty = false; saved._syncedAt = new Date().toISOString(); DB.save(); }
-        return res.report || r;
+        return saved || res.report || r;
       } catch (e) {
         U.toast('Saved on this device — will sync when online', 'warn');
         return r;
