@@ -1,11 +1,11 @@
 /* =========================================================================
    sw.js — service worker
    App-shell precache + runtime cache so the PWA opens with no signal.
-   Reports themselves live in localStorage (see api.js) and are pushed to
+   Reports themselves live in localStorage (see js/api.js) and are pushed to
    Google Sheets by the app when a connection returns.
    ========================================================================= */
 
-const VERSION = 'bpgt-v1.1.0';
+const VERSION = 'bpgt-v1.1.2';
 const SHELL = [
   './',
   'index.html',

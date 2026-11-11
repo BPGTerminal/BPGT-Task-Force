@@ -2,6 +2,44 @@
    app.js — screens, navigation and interactions
    ========================================================================= */
 
+/* Practical quick-pick labels, based on the supplied terminal ordinance.
+   The free-text field remains available; a label is not a legal finding. */
+const VIOLATION_CHOICES = [
+  "Unauthorized Loading",
+  "Unauthorized Unloading",
+  "No Special Pass",
+  "No Loading/Unloading Area",
+  "Illegal Terminal",
+  "Disregarding Terminal Authority",
+  "Disruption or Hindering Terminal Ordinance Implementation",
+  "Obstruction",
+  "Non-Payment of Arkabala",
+  "Non-Payment of Special Pass",
+  "Refusal to Enter the Terminal",
+  "Counterflow",
+  "Littering",
+  "Illegal Parking",
+  "Exceeding the Speed Limit of 30 kph",
+  "Reckless Driving Inside the Terminal",
+  "Disregarding Terminal/Traffic Signs",
+  "Unauthorized Use of Terminal Bay",
+  "Hawking of Passengers",
+  "Rude Behavior",
+  "Illegal Vending",
+  "Untidy Area",
+  "Smoking or Vaping Outside Designated Area",
+  "Dispatching Without a Valid Permit",
+  "Vehicle Washing or Repairs in Terminal",
+  "No Driver or Staff Uniform / ID",
+  "Unauthorized Structure in Terminal",
+  "Sale of Prohibited Items",
+  "Gambling in Terminal",
+  "Overloading",
+  "Trip-cutting / Colorum",
+  "No / expired franchise",
+  "No helmet (tricycle)"
+];
+
 /* ------------------------------------------------------------------ icons */
 const ICONS = {
   home:   '<path d="M3 10.6 12 3l9 7.6"/><path d="M5.5 9.4V21h13V9.4"/><path d="M9.8 21v-6h4.4v6"/>',
@@ -27,6 +65,7 @@ const ICONS = {
   bell:   '<path d="M18 8.5a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16s-2-1.5-2-6.5"/><path d="M10.2 19a2 2 0 0 0 3.6 0"/>',
   calendar:'<rect x="3" y="5" width="18" height="16" rx="2.2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M7.5 13.5h3M13.5 13.5h3M7.5 17h3"/>',
   camera: '<path d="M4 8.5h3l1.6-2.4h6.8L17 8.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5Z"/><circle cx="12" cy="13.6" r="3.3"/>',
+  image:  '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.7" cy="10.1" r="1.5"/><path d="m3.8 17.4 4.7-4.4 3.2 3 2.7-2.6 5.8 5.2"/>',
   more:   '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   check2: '<path d="m3 12.5 5.5 5.5L21 5"/>',
   trash2: '<path d="M4 7h16"/><path d="M9.5 7V4.6h5V7"/><path d="M6.2 7l.9 13h9.8l.9-13"/>'
@@ -523,8 +562,12 @@ function rowHTML(r, i) {
       </div>
       ${r.post === 'OTHERS' ? `<div class="full"><label class="lbl">Post name</label><input class="input" data-row="${i}" data-field="postOther" value="${U.esc(r.postOther)}" placeholder="Specify post"></div>` : ''}
       <div><label class="lbl">Plate number</label><input class="input" data-row="${i}" data-field="plate" value="${U.esc(r.plate)}" placeholder="ABC 1234" autocapitalize="characters"></div>
-      <div class="full"><label class="lbl">Violation</label>
-        <input class="input" list="violation-list" data-row="${i}" data-field="violation" value="${U.esc(r.violation)}" placeholder="Type or pick a violation">
+      <div class="full"><label class="lbl" for="violation-pick-${i}">Type of violation</label>
+        <select class="input" id="violation-pick-${i}" data-violation-pick="${i}">
+          <option value="">Select a violation, or type below</option>
+          ${VIOLATION_CHOICES.map(v => `<option value="${U.esc(v)}" ${r.violation === v ? 'selected' : ''}>${U.esc(v)}</option>`).join('')}
+        </select>
+        <input class="input" style="margin-top:8px" aria-label="Violation details or other violation" data-row="${i}" data-field="violation" value="${U.esc(r.violation)}" placeholder="Or type another violation">
       </div>
       <div><label class="lbl">Driver</label><input class="input" data-row="${i}" data-field="driver" value="${U.esc(r.driver)}" placeholder="Full name"></div>
       <div><label class="lbl">CT number</label><input class="input" data-row="${i}" data-field="ct" value="${U.esc(r.ct)}" placeholder="CT-0000"></div>
@@ -532,13 +575,19 @@ function rowHTML(r, i) {
       <div class="full">
         <label class="lbl">Photo documentation</label>
         <div class="shots" data-shots="${i}"></div>
-        <label class="shot-add">${icon('camera')} Add photo
-          <input type="file" accept="image/*" capture="environment" multiple hidden data-photo-row="${i}">
-        </label>
+        <div class="shot-actions">
+          <label class="shot-add">${icon('camera')} Take photo
+            <input type="file" accept="image/*" capture="environment" multiple hidden data-photo-row="${i}">
+          </label>
+          <label class="shot-add">${icon('image')} From gallery
+            <input type="file" accept="image/*" multiple hidden data-photo-row="${i}">
+          </label>
+        </div>
+        <p class="hint">You can choose a photo taken earlier. Save the report, then check the photo upload when you have signal.</p>
       </div>
     </div>
   </div>
-  <datalist id="violation-list">${BP.VIOLATIONS.map(v => `<option value="${U.esc(v)}">`).join('')}</datalist>`;
+  `;
 }
 
 function bindEncode(root) {
@@ -547,6 +596,14 @@ function bindEncode(root) {
   hydrateShots();
 
   root.addEventListener('change', async e => {
+    if (e.target.matches('[data-violation-pick]')) {
+      const idx = +e.target.dataset.violationPick;
+      if (!d.rows[idx] || !e.target.value) return;
+      d.rows[idx].violation = e.target.value;
+      const input = e.target.parentElement.querySelector('[data-field="violation"]');
+      if (input) input.value = e.target.value;
+      return;
+    }
     if (e.target.matches('[data-photo-row]')) {
       const idx = +e.target.dataset.photoRow;
       await addPhotos(idx, e.target.files);
@@ -558,6 +615,10 @@ function bindEncode(root) {
     const i = +el.dataset.row, f = el.dataset.field;
     if (isNaN(i) || !f) return;
     d.rows[i][f] = el.value;
+    if (f === 'violation') {
+      const pick = el.parentElement.querySelector('[data-violation-pick]');
+      if (pick) pick.value = VIOLATION_CHOICES.includes(el.value) ? el.value : '';
+    }
     if (f === 'post') rowsEl.innerHTML = d.rows.map((r, k) => rowHTML(r, k)).join('');
   };
   root.addEventListener('input', e => {
