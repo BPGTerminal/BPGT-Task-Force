@@ -56,10 +56,23 @@ const DB = (() => {
   return { load, save, reset, audit, blank };
 })();
 
-/* --------------------------------------------------------- demo seed data */
-function seedDemoData(force = false) {
+/* Initialise accounts only: never create sample operational records. */
+function seedDemoData() {
   const db = DB.load();
-  if (db.settings.seeded && !force) return;
+  if (!db.settings.seeded) {
+    if (!db.users.length) db.users = BP.users.map(u => ({
+      ...u, active: true, pinHash: null, mustChange: false, createdAt: new Date().toISOString()
+    }));
+    db.settings.seeded = true;
+  }
+  removeUnchangedLegacyExamples(db);
+  DB.save();
+}
+
+/* Recreate former example data only in memory for exact-match migration. */
+/* --------------------------------------------------------- demo seed data */
+function legacyExampleSnapshot(now) {
+  const db = {users: [], reports: [], notices: [], schedules: [], leaves: [], settings: {}};
 
   // 1. accounts (PIN hashed on first use — see Local.ensureHashes)
   db.users = BP.users.map(u => ({
@@ -77,7 +90,6 @@ function seedDemoData(force = false) {
   const pick = (a, i) => a[i % a.length];
   const members = BP.users.filter(u => u.role === 'member');
   const reports = [];
-  const now = new Date();
 
   for (let back = 7; back >= 1; back--) {
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
@@ -200,7 +212,55 @@ function seedDemoData(force = false) {
 
   db.reports = reports;
   db.settings.seeded = true;
-  DB.save();
+  return db;
+}
+
+
+/* Do not delete edits, pending changes, or anything merely sharing an ID. */
+function removeUnchangedLegacyExamples(db) {
+  if (db.settings.examplesCleanedV2) return;
+  const stable = x => {
+    if (Array.isArray(x)) return x.map(stable);
+    if (x && typeof x === 'object') return Object.fromEntries(Object.keys(x).sort().map(k => [k, stable(x[k])]));
+    return x;
+  };
+  const same = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+  const day = s => { if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return null; const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d,12); };
+  const move = (date, n) => { const d = new Date(date); d.setDate(d.getDate() + n); return d; };
+  const snapshots = new Map();
+  const snapshot = date => {
+    const key = U.iso(date);
+    if (!snapshots.has(key)) snapshots.set(key, legacyExampleSnapshot(date));
+    return snapshots.get(key);
+  };
+  db.reports = db.reports.filter(r => {
+    if (r._dirty !== false || !r.date) return true;
+    const d = day(r.date); if (!d) return true;
+    for (let i=0;i<=7;i++) {
+      const match = snapshot(move(d,i)).reports.find(x => x.id === r.id);
+      if (match && same(match,r)) return false;
+    }
+    return true;
+  });
+  // The generated timestamps varied by device; compare every other field.
+  const compareExamples = (item, candidate) => {
+    const a = {...item}, b = {...candidate};
+    if (typeof a.createdAt !== 'string') return false;
+    delete a.createdAt; delete b.createdAt;
+    return same(a,b);
+  };
+  for (const key of ['notices','schedules','leaves']) {
+    db[key] = db[key].filter(item => {
+      if (!(item.id || '').includes('-demo-') || !item.createdAt) return true;
+      const created = new Date(item.createdAt); if (Number.isNaN(created.getTime())) return true;
+      for (let delta=-1;delta<=1;delta++) {
+        const candidate = snapshot(move(created,delta))[key].find(x => x.id === item.id);
+        if (candidate && compareExamples(item,candidate)) return false;
+      }
+      return true;
+    });
+  }
+  db.settings.examplesCleanedV2 = true;
 }
 
 /* ================================================================== LOCAL */

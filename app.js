@@ -1178,7 +1178,6 @@ function viewSettings() {
     <p class="hint">Local cache on this device.</p>
     <div class="btn-row">
       <button class="btn ghost sm" data-action="export-json">Export all reports</button>
-      <button class="btn danger sm" data-action="reset-demo">Reset local demo data</button>
     </div>
   </div>
 
@@ -1416,11 +1415,6 @@ async function handleAction(action, data, el, ev) {
       const db = DB.load();
       U.download(`bpgt-backup-${U.today()}.json`, JSON.stringify({ users: db.users, reports: db.reports, audit: db.audit, exportedAt: new Date().toISOString() }, null, 2));
       U.toast('Backup exported', 'ok');
-      return;
-    }
-    case 'reset-demo': {
-      if (!confirm('Reset local demo data? Reports stored only on this device will be lost.')) return;
-      DB.reset(); seedDemoData(true); U.toast('Local data reset', 'ok'); render();
       return;
     }
     case 'logout': {

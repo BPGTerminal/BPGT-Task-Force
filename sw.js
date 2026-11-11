@@ -5,7 +5,7 @@
    Google Sheets by the app when a connection returns.
    ========================================================================= */
 
-const VERSION = 'bpgt-v1.1.2';
+const VERSION = 'bpgt-v1.1.3';
 const SHELL = [
   './',
   'index.html',
