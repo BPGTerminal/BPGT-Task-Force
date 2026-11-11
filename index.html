@@ -12,8 +12,8 @@
 <meta name="apple-mobile-web-app-title" content="BPGT TF">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.png" sizes="32x32">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/app.css">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
 
@@ -21,13 +21,13 @@
 <div id="login-screen">
   <div class="login-card">
     <div class="brand">
-      <img class="bm seal" src="assets/bpgt-logo-128.png" alt="Brooke's Point Grand Terminal seal">
+      <img class="bm seal" src="bpgt-logo-128.png" alt="Brooke's Point Grand Terminal seal">
       <div class="btxt">
         <h1>BPGT Task Force</h1>
         <p>Brooke's Point Grand Terminal</p>
         <span class="tagline">Daily Reporting System</span>
       </div>
-      <img class="bm shield" src="assets/tf-shield-256.png" alt="BPGT Task Force logo">
+      <img class="bm shield" src="tf-shield-256.png" alt="BPGT Task Force logo">
     </div>
     <p class="login-hero">Republic of the Philippines · Province of Palawan · Municipality of Brooke's Point</p>
 
@@ -74,7 +74,7 @@
 <!-- =============================== APP ================================= -->
 <div id="app" hidden>
   <header class="topbar">
-    <img class="logo" src="assets/bpgt-logo-128.png" alt="">
+    <img class="logo" src="bpgt-logo-128.png" alt="">
     <div class="titles">
       <div class="t1" id="top-title">BPGT TF Reports</div>
       <div class="t2" id="top-sub">Task Force Reporting</div>
@@ -95,12 +95,11 @@
 <div id="toast"></div>
 <iframe id="print-frame" title="print" style="position:fixed;width:0;height:0;border:0;left:-9999px;top:0"></iframe>
 
-<script src="js/config.js"></script>
-<script src="js/util.js"></script>
-<script src="js/api.js"></script>
-<script src="js/photos.js"></script>
-<script src="js/report.js"></script>
-<script src="js/app.js"></script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","spa":2}' crossorigin="anonymous"></script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a589903e79a285f5',t:'MTc5NDM2MDk1OQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a589903e79a285f5',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script src="config.js"></script>
+<script src="util.js"></script>
+<script src="api.js"></script>
+<script src="photos.js"></script>
+<script src="report.js"></script>
+<script src="app.js"></script>
+</body>
 </html>
