@@ -332,8 +332,8 @@ const Monthly = (() => {
   </div>
 
   <div class="foot">
-    <span>&copy; 2026 ${o.unit} — ${o.reportTitle} (${U.esc(data.period.name)}, ${U.esc(data.period.label)})</span>
-    <span>BPGT TF Reporting System v${BP.APP_VERSION} (Est. 2026) · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span>
+    <span>&copy; Brooke's Point Grand Terminal 2026 — ${o.reportTitle} (${U.esc(data.period.name)}, ${U.esc(data.period.label)})</span>
+    <span>v${BP.APP_VERSION} · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span>
   </div>
 </body></html>`;
   }

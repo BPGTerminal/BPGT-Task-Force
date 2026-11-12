@@ -109,11 +109,14 @@ async function init() {
     }
   }
   const foot = document.querySelector('.login-foot');
-  if (foot && !document.querySelector('.login-copy')) {
-    const copy = document.createElement('div');
-    copy.className = 'login-copy';
-    copy.textContent = '© 2026 Brooke\u2019s Point Grand Terminal (BPGT) Task Force';
-    foot.insertAdjacentElement('afterend', copy);
+  if (foot) {
+    let copy = document.querySelector('.login-copy');
+    if (!copy) {
+      copy = document.createElement('div');
+      copy.className = 'login-copy';
+      foot.insertAdjacentElement('afterend', copy);
+    }
+    copy.textContent = '© Brooke\u2019s Point Grand Terminal 2026';
   }
   paintModePill();
 
@@ -1133,7 +1136,7 @@ function viewMonthly() {
       <br>${BP.officials.map(o => `${U.esc(o.name)} — ${U.esc(o.role)}`).join('<br>')}
     </div>
   </div>` : ''}
-  <div class="rep-imprint">&copy; 2026 Brooke's Point Grand Terminal (BPGT) Task Force · BPGT TF Reporting System v${U.esc(BP.APP_VERSION)} (Est. 2026)</div>`;
+  <div class="rep-imprint">&copy; Brooke's Point Grand Terminal 2026 · v${U.esc(BP.APP_VERSION)}</div>`;
 }
 
 function bindMonthly(root) {
@@ -1197,12 +1200,10 @@ async function currentReportHTML() {
     }));
   } catch (e) {}
   let html = Monthly.buildHTML(data, logos, photos);
-  if (!html.includes('Est. 2026')) {
-    html = html.replace(
-      /<div class="foot">[\s\S]*?<\/div>/,
-      `<div class="foot"><span>&copy; 2026 ${BP.org.unit} — ${BP.org.reportTitle} (${U.esc(data.period.name)}, ${U.esc(data.period.label)})</span><span>BPGT TF Reporting System v${BP.APP_VERSION} (Est. 2026) · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span></div>`
-    );
-  }
+  html = html.replace(
+    /<div class="foot">[\s\S]*?<\/div>/,
+    `<div class="foot"><span>&copy; Brooke's Point Grand Terminal 2026 — ${BP.org.reportTitle} (${U.esc(data.period.name)}, ${U.esc(data.period.label)})</span><span>v${BP.APP_VERSION} · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span></div>`
+  );
   return { html, data, photos };
 }
 
@@ -1431,7 +1432,7 @@ function viewSettings() {
     <h4>Reporting period</h4>
     <p class="small" style="margin:0">A month of reporting runs from the <b>26th of the preceding month</b> to the <b>25th of the closing month</b>. Example: the November 2026 summary covers 26 Oct 2026 – 25 Nov 2026.</p>
   </div>
-  <div class="rep-imprint">&copy; 2026 Brooke's Point Grand Terminal (BPGT) Task Force · BPGT TF Reporting System v${U.esc(BP.APP_VERSION)} (Est. 2026)</div>`;
+  <div class="rep-imprint">&copy; Brooke's Point Grand Terminal 2026 · v${U.esc(BP.APP_VERSION)}</div>`;
 }
 
 function bindSettings(root) {
@@ -1812,7 +1813,7 @@ function reportDetailHTML(r, photos = []) {
   ${r.leaderNote ? `<div class="banner navy" style="margin-top:14px"><div class="ic">✓</div><div><b>Team Leader note</b><p>${U.esc(r.leaderNote)}</p></div></div>` : ''}
   ${r.supervisorNote ? `<div class="banner navy" style="margin-top:8px"><div class="ic">✓</div><div><b>Supervisor note</b><p>${U.esc(r.supervisorNote)}</p></div></div>` : ''}
   ${r.returnNote ? `<div class="banner" style="margin-top:8px"><div class="ic">!</div><div><b>Returned for correction</b><p>${U.esc(r.returnNote)}</p></div></div>` : ''}
-  <div class="rep-imprint">&copy; 2026 Brooke's Point Grand Terminal (BPGT) Task Force · BPGT TF Reporting System v${U.esc(BP.APP_VERSION)} (Est. 2026)</div>
+  <div class="rep-imprint">&copy; Brooke's Point Grand Terminal 2026 · v${U.esc(BP.APP_VERSION)}</div>
   `;
 }
 
@@ -1856,7 +1857,7 @@ async function printDailyReport(id) {
   let html = Monthly.buildHTML(singleData, logos, photos);
   html = html.replace(
     /<div class="foot">[\s\S]*?<\/div>/,
-    `<div class="foot"><span>&copy; 2026 ${BP.org.unit} — ${BP.org.formTitle} (${U.esc(r.memberName)}, ${U.esc(U.fmtLong(r.date))})</span><span>BPGT TF Reporting System v${BP.APP_VERSION} (Est. 2026) · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span></div>`
+    `<div class="foot"><span>&copy; Brooke's Point Grand Terminal 2026 — ${BP.org.formTitle} (${U.esc(r.memberName)}, ${U.esc(U.fmtLong(r.date))})</span><span>v${BP.APP_VERSION} · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span></div>`
   );
   const doc = html.replace('<head>', `<head><base href="${abs('')}">`);
   const frame = document.getElementById('print-frame');
