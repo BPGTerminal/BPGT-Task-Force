@@ -97,6 +97,10 @@ document.addEventListener('DOMContentLoaded', init);
 async function init() {
   const hero = document.querySelector('.login-hero');
   if (hero) hero.remove();
+  const fav = document.querySelector('link[rel="icon"]');
+  if (fav && !fav.href.includes('v=tf')) fav.href = 'favicon.png?v=tf';
+  const ati = document.querySelector('link[rel="apple-touch-icon"]');
+  if (ati && !ati.href.includes('v=tf')) ati.href = (ati.getAttribute('href') || 'apple-touch-icon.png').split('?')[0] + '?v=tf';
   seedDemoData();
   BP.API_URL = DB.load().settings.apiUrl || BP.API_URL;
   const verEl = document.getElementById('app-ver');
@@ -329,6 +333,51 @@ function bindView() {
 }
 
 /* ================================================================ shared = */
+const TEAM_DUTY_DAYS = {
+  Alpha: [1, 2, 3, 4],     // Monday – Thursday
+  Zulu:  [5, 6, 0, 1]      // Friday – Monday
+};
+const TEAM_DUTY_LABEL = {
+  Alpha: 'Mon–Thu',
+  Zulu:  'Fri–Mon'
+};
+const TEAM_DUTY_FULL = {
+  Alpha: 'Monday – Thursday',
+  Zulu:  'Friday – Monday'
+};
+
+function isTeamOnDuty(team, isoDate = U.today()) {
+  const d = U.parseISO(isoDate);
+  if (!d || isNaN(d)) return true;
+  const dow = d.getDay();
+  const days = TEAM_DUTY_DAYS[team];
+  return days ? days.includes(dow) : true;
+}
+
+function dutyTeamsForDate(isoDate = U.today()) {
+  return ['Alpha', 'Zulu'].filter(t => isTeamOnDuty(t, isoDate));
+}
+
+function nextDutyDateForTeam(team, fromIso = U.today()) {
+  const base = U.parseISO(fromIso);
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+    const ds = U.iso(d);
+    if (isTeamOnDuty(team, ds)) return ds;
+  }
+  return fromIso;
+}
+
+function dutyBadge(isoDate = U.today()) {
+  const teams = dutyTeamsForDate(isoDate);
+  const dayName = U.weekday(isoDate).slice(0, 3);
+  if (teams.length === 1) {
+    const t = teams[0];
+    return `<span class="badge team-${U.esc(t)}">On duty (${U.esc(dayName)}): ${U.esc(t)} Team (${U.esc(TEAM_DUTY_LABEL[t])})</span>`;
+  }
+  return `<span class="badge">On duty (${U.esc(dayName)}): Alpha &amp; Zulu Teams</span>`;
+}
+
 function periodBadge() {
   const p = Monthly.currentPeriod();
   return `<span class="badge gold">Period ${U.esc(p.label)}</span>`;
@@ -373,7 +422,11 @@ function viewDashboard() {
   const mine = isMember() ? all.filter(r => r.memberId === u.id) : all;
   const todayRep = all.filter(r => r.date === U.today());
 
-  const teamMembers = API.users().filter(x => x.role === 'member' && (isMember() ? x.team === u.team : true));
+  const teamMembers = API.users().filter(x => x.role === 'member' && (isMember() ? x.team === u.team : true))
+    .sort((a, b) => (isTeamOnDuty(b.team, U.today()) ? 1 : 0) - (isTeamOnDuty(a.team, U.today()) ? 1 : 0));
+  const onDutyTodayMembers = teamMembers.filter(m => isTeamOnDuty(m.team, U.today()));
+  const dutyTargetCount = onDutyTodayMembers.length || teamMembers.length;
+  const dutyTeamsToday = dutyTeamsForDate(U.today());
   const submittedToday = new Set(todayRep.map(r => r.memberId));
   const pending = all.filter(r => r.status === 'submitted').length;
   const violations = U.sum(mine, r => (r.rows || []).filter(x => x.violation).length);
@@ -418,8 +471,8 @@ function viewDashboard() {
   <div class="view-head">
     <div style="min-width:0">
       <h2>${greet}, ${U.esc(u.name.split(' ')[0])}</h2>
-      <p>${U.esc(BP.ROLES[u.role].label)}${u.team !== 'BOTH' ? ' · ' + U.esc(u.team) + ' Team' : ''} · ${U.fmtLong(U.today())}</p>
-      <div style="margin-top:8px">${periodBadge()}</div>
+      <p>${U.esc(BP.ROLES[u.role].label)}${u.team !== 'BOTH' ? ' · ' + U.esc(u.team) + ' Team (' + U.esc(TEAM_DUTY_LABEL[u.team] || '') + ')' : ''} · ${U.fmtLong(U.today())}</p>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${periodBadge()}${dutyBadge(U.today())}</div>
     </div>
     <div class="btn-row">
       ${isMember() ? `<button class="btn primary" data-nav="encode">${icon('plus')} Encode today</button>` : ''}
@@ -433,7 +486,7 @@ function viewDashboard() {
       <div class="btn-row" style="margin-top:9px"><button class="btn sm primary" data-report="${U.esc(returned[0].id)}">Open report</button></div></div></div>` : ''}
 
   <div class="kpis">
-    ${kpi("Today's submissions", `${submittedToday.size}<span style="font-size:14px;color:#8a97b3"> / ${teamMembers.length}</span>`, isMember() ? `${u.team} Team members who filed` : 'members who filed today', 'navy')}
+    ${kpi("Today's submissions", `${submittedToday.size}<span style="font-size:14px;color:#8a97b3"> / ${dutyTargetCount}</span>`, isMember() ? `${u.team} Team (${TEAM_DUTY_LABEL[u.team] || ''})` : `On duty today: ${dutyTeamsToday.join(' & ')}`, 'navy')}
     ${kpi('Period entries', U.nf(entries), U.esc(p.name))}
     ${kpi('Violations noted', U.nf(violations), 'apprehension entries')}
     ${canMonitor()
@@ -445,19 +498,23 @@ function viewDashboard() {
 
   ${canMonitor() ? `
   <div class="card">
-    <h3>Member submission status — today</h3>
-    <p class="hint">Who has filed their daily report for ${U.fmtLong(U.today())}</p>
-    ${teamMembers.map(m => `
+    <h3>Member submission status — today (${U.esc(U.weekday(U.today()))})</h3>
+    <p class="hint">Scheduled duty: <b>Alpha Team (Mon–Thu)</b> · <b>Zulu Team (Fri–Mon)</b></p>
+    ${teamMembers.map(m => {
+      const onDuty = isTeamOnDuty(m.team, U.today());
+      const filed = submittedToday.has(m.id);
+      return `
       <div class="session-row">
-        <span class="dot ${submittedToday.has(m.id) ? 'on' : 'off'}"></span>
+        <span class="dot ${filed ? 'on' : (onDuty ? 'off' : '')}" style="${!filed && !onDuty ? 'background:#cbd3e6' : ''}"></span>
         <div style="flex:1">
           <div style="font-size:13.5px;font-weight:600">${U.esc(m.name)}</div>
-          <div class="small">${U.esc(m.team)} Team</div>
+          <div class="small">${U.esc(m.team)} Team · ${U.esc(TEAM_DUTY_LABEL[m.team] || '')}${onDuty ? ' (On duty today)' : ' (Off duty today)'}</div>
         </div>
-        ${submittedToday.has(m.id)
+        ${filed
           ? `<span class="badge ok">Filed</span>`
-          : `<span class="badge draft">No report</span>`}
-      </div>`).join('')}
+          : (onDuty ? `<span class="badge draft">No report</span>` : `<span class="badge">Off duty (${U.esc(TEAM_DUTY_LABEL[m.team] || '')})</span>`)}
+      </div>`;
+    }).join('')}
   </div>` : ''}
 
   <div class="card">
@@ -917,7 +974,10 @@ async function saveDraft(submit) {
 function viewMonitoring() {
   const date = App.monDate;
   const team = App.monTeam;
-  const members = API.users().filter(u => u.role === 'member' && (team === 'ALL' || u.team === team));
+  const members = API.users().filter(u => u.role === 'member' && (team === 'ALL' || u.team === team))
+    .sort((a, b) => (isTeamOnDuty(b.team, date) ? 1 : 0) - (isTeamOnDuty(a.team, date) ? 1 : 0));
+  const onDutyMembers = members.filter(m => isTeamOnDuty(m.team, date));
+  const expectedCount = team === 'ALL' ? (onDutyMembers.length || members.length) : members.length;
   const dayReps = API.query({ from: date, to: date, team });
   const byMember = id => dayReps.find(r => r.memberId === id);
   const p = Monthly.currentPeriod();
@@ -938,36 +998,37 @@ function viewMonitoring() {
   return `
   <div class="view-head">
     <div><h2>Daily monitoring</h2><p>${U.esc(BP.ROLES[me().role].label)} view · ${U.esc(p.name)} period</p></div>
-    <div class="btn-row">${periodBadge()}</div>
+    <div class="btn-row">${dutyBadge(date)}${periodBadge()}</div>
   </div>
 
   <div class="filters">
     <div class="seg" style="flex:1">
-      ${['ALL', 'Alpha', 'Zulu'].map(t => `<button data-action="mon-team" data-team="${t}" class="${team === t ? 'active' : ''}">${t === 'ALL' ? 'All teams' : t}</button>`).join('')}
+      ${['ALL', 'Alpha', 'Zulu'].map(t => `<button data-action="mon-team" data-team="${t}" class="${team === t ? 'active' : ''}">${t === 'ALL' ? 'All teams' : t + ' (' + TEAM_DUTY_LABEL[t] + ')'}</button>`).join('')}
     </div>
     <input class="input" type="date" id="mon-date" value="${U.esc(date)}" style="max-width:190px">
   </div>
 
   <div class="kpis">
-    ${kpi('Filed on this date', `${dayReps.length}<span style="font-size:14px;color:#8a97b3"> / ${members.length}</span>`, U.fmtLong(date), 'navy')}
+    ${kpi('Filed on this date', `${dayReps.length}<span style="font-size:14px;color:#8a97b3"> / ${expectedCount}</span>`, `${U.fmtLong(date)} (${U.weekday(date).slice(0, 3)})`, 'navy')}
     ${kpi('Entries', U.nf(U.sum(dayReps, r => (r.rows || []).length)), 'duty activity rows')}
     ${kpi('Violations', U.nf(U.sum(dayReps, r => (r.rows || []).filter(x => x.violation).length)), 'noted on this date')}
     ${kpi('Awaiting review', pending.length, 'this period', pending.length ? 'gold' : '')}
   </div>
 
   <div class="card">
-    <h3>Who filed — ${U.fmtLong(date)}</h3>
-    <p class="hint">Tap a name to open that member's report and verify it.</p>
+    <h3>Who filed — ${U.fmtLong(date)} (${U.esc(U.weekday(date))})</h3>
+    <p class="hint">Scheduled duty: <b>Alpha Team (Mon–Thu)</b> · <b>Zulu Team (Fri–Mon)</b>. Tap a filed report to open and verify it.</p>
     ${members.map(m => {
       const r = byMember(m.id);
       const st = r ? (BP.STATUS[r.status] || {}) : null;
+      const onDuty = isTeamOnDuty(m.team, date);
       return `<div class="session-row">
-        <span class="dot ${r ? 'on' : 'off'}"></span>
+        <span class="dot ${r ? 'on' : (onDuty ? 'off' : '')}" style="${!r && !onDuty ? 'background:#cbd3e6' : ''}"></span>
         <div style="flex:1">
-          <div style="font-size:13.5px;font-weight:600">${U.esc(m.name)} <span class="badge team-${U.esc(m.team)}" style="margin-left:4px">${U.esc(m.team)}</span></div>
-          <div class="small">${r ? `${(r.rows || []).length} entries · ${(r.rows || []).filter(x => x.violation).length} violations` : 'No report filed'}</div>
+          <div style="font-size:13.5px;font-weight:600">${U.esc(m.name)} <span class="badge team-${U.esc(m.team)}" style="margin-left:4px">${U.esc(m.team)} · ${U.esc(TEAM_DUTY_LABEL[m.team] || '')}</span></div>
+          <div class="small">${r ? `${(r.rows || []).length} entries · ${(r.rows || []).filter(x => x.violation).length} violations` : (onDuty ? 'No report filed (On duty)' : `Scheduled off duty (${TEAM_DUTY_FULL[m.team] || ''})`)}</div>
         </div>
-        ${r ? `<button class="btn sm ghost" data-report="${U.esc(r.id)}"><span class="badge ${st.cls}">${U.esc(st.label)}</span></button>` : `<span class="badge draft">Missing</span>`}
+        ${r ? `<button class="btn sm ghost" data-report="${U.esc(r.id)}"><span class="badge ${st.cls}">${U.esc(st.label)}</span></button>` : (onDuty ? `<span class="badge draft">Missing</span>` : `<span class="badge">Off duty</span>`)}
       </div>`;
     }).join('')}
   </div>
@@ -2244,17 +2305,47 @@ function dutyScheduleHTML() {
   const myNext = API.schedule(U.today(), U.iso(new Date(Date.now() + 7 * 864e5)), 'ALL')
     .filter(s => s.memberId === mine.id)
     .sort((a, b) => a.date.localeCompare(b.date))[0];
+  const autoNextDate = mine.team && mine.team !== 'BOTH' ? nextDutyDateForTeam(mine.team, U.today()) : U.today();
+  const nextDayLabel = myNext
+    ? U.DAYS[U.parseISO(myNext.date).getDay()].slice(0, 3)
+    : U.DAYS[U.parseISO(autoNextDate).getDay()].slice(0, 3);
+  const nextSubLabel = myNext
+    ? `${U.fmtLong(myNext.date)} · ${myNext.shift}`
+    : (mine.team && mine.team !== 'BOTH'
+        ? `${U.fmtLong(autoNextDate)} · ${mine.team} Team (${TEAM_DUTY_LABEL[mine.team]})`
+        : `Today: ${dutyTeamsForDate(U.today()).join(' & ')} Team`);
+
+  const alphaMembers = API.users().filter(u => u.role === 'member' && u.team === 'Alpha').map(u => u.name).join(' · ');
+  const zuluMembers = API.users().filter(u => u.role === 'member' && u.team === 'Zulu').map(u => u.name).join(' · ');
 
   return `
   <div class="kpis">
-    ${kpi('My next duty', myNext ? U.esc(U.DAYS[U.parseISO(myNext.date).getDay()].slice(0, 3)) : '—',
-        myNext ? `${U.esc(U.fmtLong(myNext.date))} · ${U.esc(myNext.shift)}` : 'no assignment yet', 'navy')}
-    ${kpi('Slots this week', slots.length, `${U.esc(U.fmtLong(from))} – ${U.esc(U.fmtLong(to))}`)}
+    ${kpi('My next duty', U.esc(nextDayLabel), U.esc(nextSubLabel), 'navy')}
+    ${kpi('Team schedule', 'Mon–Thu / Fri–Mon', 'Alpha: Mon–Thu · Zulu: Fri–Mon')}
+  </div>
+
+  <div class="card">
+    <h3>Standing team duty schedule</h3>
+    <p class="hint">Regular weekly duty rotation for Brooke's Point Grand Terminal Task Force</p>
+    <div class="session-row" style="align-items:flex-start">
+      <span class="badge team-Alpha" style="min-width:92px;justify-content:center">Alpha Team</span>
+      <div style="flex:1">
+        <div style="font-size:13.5px;font-weight:700;color:var(--navy)">Monday – Thursday</div>
+        <div class="small">${U.esc(alphaMembers)}</div>
+      </div>
+    </div>
+    <div class="session-row" style="align-items:flex-start">
+      <span class="badge team-Zulu" style="min-width:92px;justify-content:center">Zulu Team</span>
+      <div style="flex:1">
+        <div style="font-size:13.5px;font-weight:700;color:var(--navy)">Friday – Monday</div>
+        <div class="small">${U.esc(zuluMembers)}</div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap">
-      <div><h3>Week of ${U.esc(U.fmtLong(from))}</h3><p class="hint" style="margin:0 0 8px">Tap a day to add or change an assignment</p></div>
+      <div><h3>Week of ${U.esc(U.fmtLong(from))}</h3><p class="hint" style="margin:0 0 8px">Standing team rotation plus any specific post assignments</p></div>
       <div class="btn-row">
         <button class="btn ghost sm" data-action="duty-week" data-dir="-1">${icon('back')} Prev</button>
         <button class="btn ghost sm" data-action="duty-week" data-dir="0">This week</button>
@@ -2267,21 +2358,29 @@ function dutyScheduleHTML() {
       ${days.map(d => {
         const ds = U.iso(d);
         const daySlots = slots.filter(s => s.date === ds);
+        const dayTeams = dutyTeamsForDate(ds);
         const isToday = ds === U.today();
         return `<div class="wday ${isToday ? 'today' : ''}">
           <div class="wd-head">
             <b>${U.DAYS[d.getDay()].slice(0, 3)}</b>
             <span>${d.getDate()} ${U.MON3[d.getMonth()]}</span>
           </div>
-          <div class="slots">${daySlots.length ? daySlots.map(s => {
-            const shift = BP.SHIFTS.find(x => x.key === s.shift) || { label: s.shift, time: '' };
-            const isMine = s.memberId === mine.id;
-            return `<div class="slot ${isMine ? 'mine' : ''} ${s.team === 'Zulu' ? 'zulu' : 'alpha'}" ${canEdit ? `data-action="edit-slot" data-id="${U.esc(s.id)}"` : ''}>
-              <div class="sl-shift">${U.esc(s.shift)} <span>${U.esc(s.post || '')}</span></div>
-              <div class="sl-name">${U.esc(s.memberName)}</div>
-              <div class="sl-team">${U.esc(s.team)} · ${U.esc(shift.time || '')}</div>
-            </div>`;
-          }).join('') : `<div class="slot none">—</div>`}</div>
+          <div class="slots">${
+            dayTeams.map(t => `<div class="slot ${mine.team === t ? 'mine' : ''} ${t === 'Zulu' ? 'zulu' : 'alpha'}">
+              <div class="sl-shift">DUTY <span>${U.esc(TEAM_DUTY_LABEL[t])}</span></div>
+              <div class="sl-name">${U.esc(t)} Team</div>
+              <div class="sl-team">Scheduled rotation</div>
+            </div>`).join('') +
+            daySlots.map(s => {
+              const shift = BP.SHIFTS.find(x => x.key === s.shift) || { label: s.shift, time: '' };
+              const isMine = s.memberId === mine.id;
+              return `<div class="slot ${isMine ? 'mine' : ''} ${s.team === 'Zulu' ? 'zulu' : 'alpha'}" ${canEdit ? `data-action="edit-slot" data-id="${U.esc(s.id)}"` : ''}>
+                <div class="sl-shift">${U.esc(s.shift)} <span>${U.esc(s.post || '')}</span></div>
+                <div class="sl-name">${U.esc(s.memberName)}</div>
+                <div class="sl-team">${U.esc(s.team)} · ${U.esc(shift.time || '')}</div>
+              </div>`;
+            }).join('')
+          }</div>
           ${canEdit ? `<button class="wadd" data-action="add-slot" data-date="${ds}">+</button>` : ''}
         </div>`;
       }).join('')}
