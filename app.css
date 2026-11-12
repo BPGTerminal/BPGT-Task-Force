@@ -64,7 +64,15 @@ a{color:var(--navy-700)}
 }
 @media (max-width:340px){ .brand .tagline{display:none} }
 @media (min-width:430px){ .brand .bm{height:62px} .brand .bm.seal{width:62px} .brand .bm.shield{width:58px} }
-.login-hero{text-align:center;color:#6d7893;font-size:12.5px;margin:0 0 16px;letter-spacing:.3px}
+.login-hero{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  text-align:center;color:#5a6684;font-size:12px;line-height:1.3;
+  margin:4px 0 16px;padding:8px 6px;
+  border-top:1px solid #e6ecf7;border-bottom:1px solid #e6ecf7;
+  letter-spacing:.25px;
+}
+.login-hero .lh-line{display:block;white-space:nowrap}
+.login-hero .lh-muni{font-weight:700;color:var(--navy);font-size:12.5px;letter-spacing:.2px;margin-top:1px}
 .login-card h2{margin:0 0 2px;font-size:19px}
 .login-card .sub{color:var(--muted);font-size:13px;margin:0 0 16px}
 .field{margin-bottom:13px}

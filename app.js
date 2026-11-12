@@ -95,6 +95,13 @@ const isAdmin = () => me()?.role === 'admin';
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+  const hero = document.querySelector('.login-hero');
+  if (hero && !hero.querySelector('.lh-line')) {
+    hero.innerHTML =
+      '<span class="lh-line">Republic of the Philippines</span>' +
+      '<span class="lh-line">Province of Palawan</span>' +
+      '<span class="lh-line lh-muni">Municipality of Brooke\'s Point</span>';
+  }
   seedDemoData();
   BP.API_URL = DB.load().settings.apiUrl || BP.API_URL;
   document.getElementById('app-ver').textContent = BP.APP_VERSION;
