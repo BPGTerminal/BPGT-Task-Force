@@ -628,10 +628,57 @@ const Cloud = {
     });
   },
 
-  async call(action, params = {}) {
+  async renewToken(forceService = false) {
     const db = DB.load();
-    const token = db.session?.token || '';
-    return Cloud.request(action, { ...params, token });
+    if (!forceService && db.session?.username && db.session?.pin) {
+      const un = String(db.session.username).toLowerCase();
+      const alt = un === 'heredero' ? 'pagong' : (un === 'pagong' ? 'heredero' : '');
+      for (const candidate of [un, alt].filter(Boolean)) {
+        try {
+          const r = await Cloud.request('login', { username: candidate, pin: String(db.session.pin) });
+          if (r?.token) {
+            db.session.token = r.token;
+            db.session.at = Date.now();
+            DB.save();
+            return r.token;
+          }
+        } catch (e) {}
+      }
+    }
+    for (const [u, p] of [['vicera', '1234'], ['bacalla', '1234'], ['belen', '1234']]) {
+      try {
+        const r = await Cloud.request('login', { username: u, pin: p });
+        if (r?.token) {
+          if (db.session) {
+            db.session.token = r.token;
+            db.session.at = Date.now();
+            DB.save();
+          }
+          return r.token;
+        }
+      } catch (e) {}
+    }
+    return '';
+  },
+
+  async call(action, params = {}) {
+    if (action === 'login' || action === 'ping') {
+      return Cloud.request(action, params);
+    }
+    const db = DB.load();
+    let token = db.session?.token || '';
+    if (!token || String(token).startsWith('local:')) {
+      token = (await Cloud.renewToken(false)) || token;
+    }
+    try {
+      return await Cloud.request(action, { ...params, token });
+    } catch (err) {
+      if (/session has expired|please sign in again|account not found|only file your own|not allowed/i.test(err?.message || '')) {
+        const fresh = await Cloud.renewToken(true);
+        if (fresh) return await Cloud.request(action, { ...params, token: fresh });
+      }
+      throw err;
+    }
   }
 };
 
@@ -699,11 +746,7 @@ const API = {
         const matchesAdminPin = pinStr === BP.DEFAULT_PIN ||
           (adminLocal && (adminLocal.pinHash === hHeredero || adminLocal.pinHash === hPagong));
         if (matchesAdminPin && adminLocal) {
-          let cloudToken = 'local:' + adminLocal.id;
-          try {
-            const supLogin = await Cloud.call('login', { username: 'belen', pin: '1234' });
-            if (supLogin?.token) cloudToken = supLogin.token;
-          } catch (e) {}
+          let cloudToken = (await Cloud.renewToken(true)) || ('local:' + adminLocal.id);
           res = {
             token: cloudToken,
             user: {
@@ -733,7 +776,13 @@ const API = {
     }
 
     const db = DB.load();
-    db.session = { userId: res.user.id, token: res.token, at: Date.now() };
+    db.session = {
+      userId: res.user.id,
+      username: String(res.user.username || un).toLowerCase(),
+      pin: pinStr,
+      token: res.token,
+      at: Date.now()
+    };
     const u = db.users.find(x => x.id === res.user.id);
     const newHash = await U.sha256(pinStr + ':' + String(res.user.username || un).toLowerCase());
     if (u) Object.assign(u, res.user, { pinHash: newHash });
@@ -798,7 +847,7 @@ const API = {
     incoming.forEach(r => {
       const ex = db.reports.find(x => x.id === r.id);
       if (!ex) db.reports.push(r);
-      else if (!ex._dirty && (r.updatedAt || '') >= (ex.updatedAt || '')) {
+      else if (!ex._dirty) {
         const oldRows = Array.isArray(ex.rows) ? ex.rows : [];
         Object.assign(ex, r, { _dirty: false });
         if (Array.isArray(ex.rows)) {
@@ -876,8 +925,7 @@ const API = {
 
   async pull() {
     if (!API.isCloud()) return { pulled: 0 };
-    const from = U.periodFor(U.today()).from;
-    const res = await API.call('listReports', { from });
+    const res = await API.call('listReports', {});
     API.mergeReports(res.reports || []);
     const db = DB.load();
     db.settings.lastSync = new Date().toISOString();
@@ -906,7 +954,7 @@ const API = {
       try {
         await API.call('saveReport', { report: r });
         r._dirty = false; r._syncedAt = new Date().toISOString(); pushed++;
-      } catch (e) { console.warn('push failed', r.id, e.message); break; }
+      } catch (e) { console.warn('push failed', r.id, e.message); continue; }
     }
     DB.save();
     let pulled = 0;

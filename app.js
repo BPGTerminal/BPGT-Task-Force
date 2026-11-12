@@ -128,6 +128,11 @@ async function init() {
     document.getElementById('toggle-pin').textContent = on ? 'HIDE' : 'SHOW';
   });
   document.getElementById('avatar-btn').addEventListener('click', openAccount);
+  const syncPillEl = document.getElementById('sync-pill');
+  if (syncPillEl) {
+    syncPillEl.style.cursor = 'pointer';
+    syncPillEl.addEventListener('click', () => syncNow(false));
+  }
   window.addEventListener('hashchange', () => {
     const v = location.hash.replace('#/', '') || 'dashboard';
     if (v !== App.view && me()) go(v);
@@ -219,6 +224,17 @@ function go(view, params = {}) {
   if (location.hash !== '#/' + view) history.replaceState(null, '', '#/' + view);
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (API.isCloud() && ['dashboard', 'monitoring', 'reports', 'monthly'].includes(view)) {
+    API.pull().then(() => {
+      updateSyncPill();
+      const activeTag = document.activeElement?.tagName;
+      if (['dashboard', 'monitoring', 'reports', 'monthly'].includes(App.view) &&
+          !document.getElementById('modal-root')?.innerHTML &&
+          !['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) {
+        render();
+      }
+    }).catch(() => {});
+  }
 }
 
 function render() {
@@ -960,6 +976,12 @@ function viewMonitoring() {
     <h3>Pending verification — ${U.esc(p.name)}</h3>
     <p class="hint">Submitted reports waiting for the Team Leader / Supervisor.</p>
     ${pending.length ? U.sortBy(pending, r => r.date).reverse().map(r => reportCard(r)).join('') : emptyState('Nothing pending', 'All reports in this period are verified.')}
+  </div>
+
+  <div class="card">
+    <h3>All filed reports — ${U.esc(p.name)} (${period.length})</h3>
+    <p class="hint">Includes both submitted and already verified/approved reports in this period.</p>
+    ${period.length ? U.sortBy(period, r => r.date + ' ' + (r.updatedAt || '')).reverse().map(r => reportCard(r)).join('') : emptyState('No reports filed yet in this period')}
   </div>
 
   <div class="card">
@@ -1985,7 +2007,12 @@ async function syncNow(quiet) {
       else U.toast(`Synced — ${r.pushed} sent, ${r.pulled} received`, 'ok');
     }
     updateSyncPill();
-    if (!quiet && ['dashboard', 'reports', 'monitoring'].includes(App.view)) render();
+    const activeTag = document.activeElement?.tagName;
+    if (['dashboard', 'reports', 'monitoring', 'monthly', 'notices', 'duty'].includes(App.view) &&
+        !document.getElementById('modal-root')?.innerHTML &&
+        (!quiet || !['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag))) {
+      render();
+    }
   } catch (e) {
     updateSyncPill();
     if (!quiet) U.toast(e.message || 'Sync failed', 'err');
