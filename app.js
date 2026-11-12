@@ -96,15 +96,25 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
   const hero = document.querySelector('.login-hero');
-  if (hero && !hero.querySelector('.lh-line')) {
-    hero.innerHTML =
-      '<span class="lh-line">Republic of the Philippines</span>' +
-      '<span class="lh-line">Province of Palawan</span>' +
-      '<span class="lh-line lh-muni">Municipality of Brooke\'s Point</span>';
-  }
+  if (hero) hero.remove();
   seedDemoData();
   BP.API_URL = DB.load().settings.apiUrl || BP.API_URL;
-  document.getElementById('app-ver').textContent = BP.APP_VERSION;
+  const verEl = document.getElementById('app-ver');
+  if (verEl) {
+    verEl.textContent = BP.APP_VERSION;
+    const parent = verEl.parentElement;
+    if (parent) {
+      parent.className = 'ver-stamp';
+      parent.innerHTML = `v<span id="app-ver">${U.esc(BP.APP_VERSION)}</span> · Est. 2026`;
+    }
+  }
+  const foot = document.querySelector('.login-foot');
+  if (foot && !document.querySelector('.login-copy')) {
+    const copy = document.createElement('div');
+    copy.className = 'login-copy';
+    copy.textContent = '© 2026 Brooke\u2019s Point Grand Terminal (BPGT) Task Force';
+    foot.insertAdjacentElement('afterend', copy);
+  }
   paintModePill();
 
   document.getElementById('login-form').addEventListener('submit', onLogin);
@@ -1122,7 +1132,8 @@ function viewMonthly() {
       ${data.members.map(m => `${U.esc(m.name.toUpperCase())} — ${U.esc(m.position || 'Para-traffic Enforcer')}`).join('<br>')}
       <br>${BP.officials.map(o => `${U.esc(o.name)} — ${U.esc(o.role)}`).join('<br>')}
     </div>
-  </div>` : ''}`;
+  </div>` : ''}
+  <div class="rep-imprint">&copy; 2026 Brooke's Point Grand Terminal (BPGT) Task Force · BPGT TF Reporting System v${U.esc(BP.APP_VERSION)} (Est. 2026)</div>`;
 }
 
 function bindMonthly(root) {
@@ -1146,20 +1157,28 @@ function bindMonthly(root) {
 
 async function getLogos() {
   if (getLogos.cache) return getLogos.cache;
-  const toDataUrl = src => new Promise(res => {
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      try { res(c.toDataURL('image/png')); } catch (e) { res(src); }
+  const toDataUrl = candidates => new Promise(res => {
+    const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [candidates];
+    const tryNext = idx => {
+      if (idx >= list.length) return res(list[0] || '');
+      const src = list[idx];
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        try { res(c.toDataURL('image/png')); } catch (e) { res(src); }
+      };
+      img.onerror = () => tryNext(idx + 1);
+      img.src = src;
     };
-    img.onerror = () => res(src);
-    img.src = src;
+    tryNext(0);
   });
+  const sealDom = document.querySelector('.brand .seal')?.getAttribute('src');
+  const shieldDom = document.querySelector('.brand .shield')?.getAttribute('src');
   getLogos.cache = {
-    logo: await toDataUrl('assets/bpgt-logo-128.png'),
-    shield: await toDataUrl('assets/tf-shield-256.png')
+    logo: await toDataUrl([sealDom, 'bpgt-logo-128.png', 'assets/bpgt-logo-128.png']),
+    shield: await toDataUrl([shieldDom, 'tf-shield-256.png', 'assets/tf-shield-256.png'])
   };
   return getLogos.cache;
 }
@@ -1177,7 +1196,14 @@ async function currentReportHTML() {
       violation: p.violation, member: p.member
     }));
   } catch (e) {}
-  return { html: Monthly.buildHTML(data, logos, photos), data, photos };
+  let html = Monthly.buildHTML(data, logos, photos);
+  if (!html.includes('Est. 2026')) {
+    html = html.replace(
+      /<div class="foot">[\s\S]*?<\/div>/,
+      `<div class="foot"><span>&copy; 2026 ${BP.org.unit} — ${BP.org.reportTitle} (${U.esc(data.period.name)}, ${U.esc(data.period.label)})</span><span>BPGT TF Reporting System v${BP.APP_VERSION} (Est. 2026) · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span></div>`
+    );
+  }
+  return { html, data, photos };
 }
 
 const abs = p => new URL(p, location.href).href;
@@ -1404,7 +1430,8 @@ function viewSettings() {
     </ul>
     <h4>Reporting period</h4>
     <p class="small" style="margin:0">A month of reporting runs from the <b>26th of the preceding month</b> to the <b>25th of the closing month</b>. Example: the November 2026 summary covers 26 Oct 2026 – 25 Nov 2026.</p>
-  </div>`;
+  </div>
+  <div class="rep-imprint">&copy; 2026 Brooke's Point Grand Terminal (BPGT) Task Force · BPGT TF Reporting System v${U.esc(BP.APP_VERSION)} (Est. 2026)</div>`;
 }
 
 function bindSettings(root) {
@@ -1659,6 +1686,7 @@ async function handleAction(action, data, el, ev) {
     case 'change-pin': return changePinModal();
 
     /* --- report actions ------------------------------------------------ */
+    case 'print-daily': return printDailyReport(data.id);
     case 'verify': return setStatus(data.id, 'reviewed');
     case 'approve': return setStatus(data.id, 'approved');
     case 'return': return returnModal(data.id);
@@ -1784,7 +1812,59 @@ function reportDetailHTML(r, photos = []) {
   ${r.leaderNote ? `<div class="banner navy" style="margin-top:14px"><div class="ic">✓</div><div><b>Team Leader note</b><p>${U.esc(r.leaderNote)}</p></div></div>` : ''}
   ${r.supervisorNote ? `<div class="banner navy" style="margin-top:8px"><div class="ic">✓</div><div><b>Supervisor note</b><p>${U.esc(r.supervisorNote)}</p></div></div>` : ''}
   ${r.returnNote ? `<div class="banner" style="margin-top:8px"><div class="ic">!</div><div><b>Returned for correction</b><p>${U.esc(r.returnNote)}</p></div></div>` : ''}
+  <div class="rep-imprint">&copy; 2026 Brooke's Point Grand Terminal (BPGT) Task Force · BPGT TF Reporting System v${U.esc(BP.APP_VERSION)} (Est. 2026)</div>
   `;
+}
+
+async function printDailyReport(id) {
+  const r = API.localReports().find(x => x.id === id);
+  if (!r) return U.toast('Report not found', 'err');
+  const logos = await getLogos();
+  let photos = [];
+  try {
+    const byId = new Map();
+    const ids = (r.rows || []).flatMap(x => x.photos || []);
+    for (const pid of ids) { const p = await Photos.get(pid); if (p) byId.set(p.id, p); }
+    if (!byId.size) (await Photos.byReports([r.id])).forEach(p => byId.set(p.id, p));
+    photos = Array.from(byId.values()).map(p => ({
+      thumb: p.thumb, date: p.date || r.date, post: p.post, plate: p.plate,
+      violation: p.violation, member: p.member || r.memberName
+    }));
+  } catch (e) {}
+  const rows = (r.rows || []).filter(x => x.time || x.violation || x.plate || x.remarks).map(x => ({
+    date: r.date,
+    time: x.time || '',
+    post: x.post === 'OTHERS' && x.postOther ? x.postOther : (x.post || ''),
+    violation: x.violation || '',
+    plate: x.plate || '',
+    driver: x.driver || '',
+    ct: x.ct || '',
+    remarks: x.remarks || '',
+    member: r.memberName,
+    team: r.team
+  }));
+  const totals = { vehicles: 0, passengers: 0, arkabala: 0, violations: 0, incidents: 0, tickets: 0 };
+  BP.TALLY_FIELDS.forEach(f => { totals[f.key] = U.num(r.tally?.[f.key]); });
+  const members = API.users().filter(u => u.role === 'member' && u.team === r.team && u.active !== false);
+  const singleData = {
+    team: r.team || 'Alpha',
+    period: { from: r.date, to: r.date, label: `${U.fmtLong(r.date)} (${U.weekday(r.date)})`, name: `${r.memberName} — ${U.fmtLong(r.date)}`, monthKey: r.date.slice(0, 7) },
+    included: [r], excludedCount: 0, rows, totals,
+    narrative: r.narrative ? [{ date: r.date, member: r.memberName, text: r.narrative.trim() }] : [],
+    members, perMember: [], submissions: 1, activeDays: 1
+  };
+  let html = Monthly.buildHTML(singleData, logos, photos);
+  html = html.replace(
+    /<div class="foot">[\s\S]*?<\/div>/,
+    `<div class="foot"><span>&copy; 2026 ${BP.org.unit} — ${BP.org.formTitle} (${U.esc(r.memberName)}, ${U.esc(U.fmtLong(r.date))})</span><span>BPGT TF Reporting System v${BP.APP_VERSION} (Est. 2026) · Generated ${U.esc(new Date().toLocaleString('en-PH'))}</span></div>`
+  );
+  const doc = html.replace('<head>', `<head><base href="${abs('')}">`);
+  const frame = document.getElementById('print-frame');
+  const w = frame.contentWindow;
+  frame.srcdoc = doc;
+  frame.onload = () => setTimeout(() => {
+    try { w.focus(); w.print(); } catch (e) { U.toast('Open the app in Chrome to print / save as PDF', 'err'); }
+  }, 450);
 }
 
 async function openReport(id) {
@@ -1810,6 +1890,7 @@ async function openReport(id) {
     title: `${r.memberName} — ${U.fmtLong(r.date)}`,
     body: reportDetailHTML(r, photos),
     footer: `
+      <button class="btn ghost sm" data-action="print-daily" data-id="${U.esc(r.id)}">${icon('print')} Print / PDF</button>
       ${canEdit ? `<button class="btn ghost sm" data-action="edit-report" data-id="${U.esc(r.id)}">Edit</button>` : ''}
       ${isAdmin() ? `<button class="btn danger sm" data-action="delete-report" data-id="${U.esc(r.id)}">Delete</button>` : ''}
       ${canReturn ? `<button class="btn ghost sm" data-action="return" data-id="${U.esc(r.id)}">Return</button>` : ''}
